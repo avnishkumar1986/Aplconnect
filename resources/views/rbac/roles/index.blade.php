@@ -1,0 +1,10 @@
+@extends('layout.app')
+@section('title','Roles')
+@section('content')
+<x-page-header title="Roles" description="Manage access roles, organization mappings and permissions."><span class="crud-breadcrumb">Master Control <b>/</b> Roles</span></x-page-header>
+<section class="crud-list-card">
+<div class="crud-toolbar">@can('roles.create')<a class="crud-add" href="{{ route('admin.roles.create') }}"><span>＋</span> Add New Role</a>@endcan</div>
+<div class="crud-table-wrap"><table class="crud-table"><thead><tr><th>Role Name</th><th>Company</th><th>Department</th><th>Designation</th><th>Permissions</th><th>Users</th><th>Action</th></tr></thead><tbody>
+@forelse($roles as $role)<tr><td><strong>{{ $role->name }}</strong></td><td>{{ collect($roleCompanyIds[$role->id] ?? [])->map(fn($id) => $companyNames[$id] ?? null)->filter()->implode(', ') ?: 'All companies' }}</td><td>{{ $departmentNames[$role->department_id] ?? 'All departments' }}</td><td>{{ $designationNames[$role->designation_id] ?? 'All designations' }}</td><td>{{ $role->permissions_count }}</td><td>{{ $role->users_count }}</td><td><div class="row-actions">@can('roles.edit')<a class="edit" href="{{ route('admin.roles.edit',$role) }}" aria-label="Edit role" title="Edit role"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-5 1 1-5Z"/></svg></a>@endcan @can('roles.delete')<form method="POST" action="{{ route('admin.roles.destroy',$role) }}" onsubmit="return confirm('Delete this role?')">@csrf @method('DELETE')<button class="delete" aria-label="Delete role" title="Delete role"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15"/></svg></button></form>@endcan</div></td></tr>@empty<tr><td colspan="7" class="empty-state">No roles found.</td></tr>@endforelse
+</tbody></table></div><footer class="crud-footer"><p>Showing {{ $roles->firstItem() ?? 0 }} to {{ $roles->lastItem() ?? 0 }} of {{ $roles->total() }} entries</p><div>{{ $roles->links() }}</div></footer></section>
+@endsection

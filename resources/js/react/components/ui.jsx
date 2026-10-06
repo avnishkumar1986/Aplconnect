@@ -1,0 +1,5 @@
+import React from 'react';
+export const MetricIcon=({children})=><span className="grid h-11 w-11 place-items-center rounded-full bg-indigo-500 font-bold text-white">{children}</span>;
+export const KpiCard=({label,value,icon})=><article className="reference-card flex min-h-24 items-center justify-between px-5 py-4"><div><p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p><p className="mt-2 text-xl font-semibold">{value}</p></div><MetricIcon>{icon}</MetricIcon></article>;
+export const Panel=({title,actions,children,className=''})=><section className={`reference-card ${className}`}><header className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><h2 className="font-semibold">{title}</h2>{actions}</header>{children}</section>;
+export const DashboardHeading=()=><div className="mb-5 flex items-center justify-between"><h1 className="text-base font-semibold uppercase">Dashboard</h1><p className="text-xs text-slate-500">Dashboards / Dashboard</p></div>;

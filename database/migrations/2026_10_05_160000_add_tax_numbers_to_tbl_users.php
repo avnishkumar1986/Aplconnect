@@ -1,0 +1,23 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('tbl_users', function (Blueprint $table) {
+            $table->string('gst_number', 15)->nullable()->after('distributor_category');
+            $table->string('pan_number', 10)->nullable()->after('gst_number');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('tbl_users', function (Blueprint $table) {
+            $table->dropColumn(['gst_number', 'pan_number']);
+        });
+    }
+};
