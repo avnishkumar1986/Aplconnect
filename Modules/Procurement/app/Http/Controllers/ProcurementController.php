@@ -1061,14 +1061,22 @@ class ProcurementController extends Controller
 
     private function scopedConsumption(int $consumption): object
     {
-        $record = DB::table('procurement_daily_consumptions as consumption')
-            ->join('tbl_company as company', 'company.company_code', '=', 'consumption.company_id')
-            ->join('tbl_company as plant', 'plant.company_code', '=', 'consumption.plant_id')
-            ->where('consumption.id', $consumption)
-            ->where('consumption.status', 1)
-            ->select('consumption.*', 'company.company_code', 'company.company_name', 'plant.company_name as plant_name', 'plant.company_code as plant_code')->first();
+        $record = DB::table('procurement_daily_consumptions')->where('id', $consumption)->where('status', 1)->first();
         abort_unless($record, 404);
-        abort_unless($this->companies('procurement.daily_consumption.all_companies')->contains('company_code', (string) $record->company_id), 403);
+
+        $company = DB::table('tbl_company')->where('company_code', (string) $record->company_id)
+            ->when(is_numeric($record->company_id), fn ($query) => $query->orWhere('id', (int) $record->company_id))
+            ->first();
+        $plant = DB::table('tbl_company')->where('company_code', (string) $record->plant_id)
+            ->when(is_numeric($record->plant_id), fn ($query) => $query->orWhere('id', (int) $record->plant_id))
+            ->first();
+        abort_unless($company && $plant, 404);
+
+        $record->company_code = $company->company_code;
+        $record->company_name = $company->company_name;
+        $record->plant_code = $plant->company_code;
+        $record->plant_name = $plant->company_name;
+        abort_unless($this->companies('procurement.daily_consumption.all_companies')->contains('company_code', (string) $company->company_code), 403);
         return $record;
     }
 
@@ -1147,7 +1155,11 @@ class ProcurementController extends Controller
         Gate::authorize('procurement.daily_consumption.delete');
         $record = DB::table('procurement_daily_consumptions')->where('id', $consumption)->where('status', 1)->first();
         abort_unless($record, 404);
-        abort_unless($this->companies('procurement.daily_consumption.all_companies')->contains('company_code', (string) $record->company_id), 403);
+        $companyCode = DB::table('tbl_company')
+            ->where('company_code', (string) $record->company_id)
+            ->when(is_numeric($record->company_id), fn ($query) => $query->orWhere('id', (int) $record->company_id))
+            ->value('company_code');
+        abort_unless($companyCode && $this->companies('procurement.daily_consumption.all_companies')->contains('company_code', (string) $companyCode), 403);
         DB::table('procurement_daily_consumptions')->where('id', $consumption)->update([
             'status' => 0,
             'updated_at' => now(),
@@ -1307,6 +1319,11 @@ class ProcurementController extends Controller
 
     private function monthlyNextDateMap($plants): array
     {
+        if (! Schema::hasTable('procurement_daily_consumptions')
+            || ! Schema::hasColumn('procurement_daily_consumptions', 'period_type')) {
+            return [];
+        }
+
         $plantCodes = $plants->pluck('company_code')->map(fn ($code) => (string) $code)->values();
 
         return DB::table('procurement_daily_consumptions')
@@ -1464,9 +1481,8 @@ class ProcurementController extends Controller
             $overlapStart = $from->greaterThan($monthStart) ? $from : $monthStart;
             $overlapEnd = $until->lessThan($monthEnd) ? $until : $monthEnd;
             if ($overlapStart->gt($overlapEnd)) continue;
-            $periodDays = max(1, (int) round($from->copy()->startOfDay()->diffInDays($until->copy()->startOfDay())) + 1);
             $overlapDays = (int) round($overlapStart->copy()->startOfDay()->diffInDays($overlapEnd->copy()->startOfDay())) + 1;
-            $metrics['expected_consumption'] += (float) $row->quantity_mt * $overlapDays / $periodDays;
+            $metrics['expected_consumption'] += (float) $row->daily_consumption_mt * $overlapDays;
         }
 
         // Calculate one calendar date at a time so overlapping date-wise rows

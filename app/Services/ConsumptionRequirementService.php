@@ -13,9 +13,17 @@ class ConsumptionRequirementService
         $days = (int) $data['day_count'];
         if ($days < 1) throw new InvalidArgumentException('Day count must be greater than zero.');
         $quantity = round((float) $data['quantity_mt'], 3);
-        // Daily-consumption rows store business codes, not tbl_company IDs.
-        $plantCode = (string) $data['plant_id'];
-        $plantDatabaseId = DB::table('tbl_company')->where('company_code', $plantCode)->value('id');
+        // New records store business codes, while older records and imports may
+        // still contain tbl_company IDs. Resolve both representations here so
+        // stock and purchase calculations remain correct during migration.
+        $plantReference = (string) $data['plant_id'];
+        $plant = DB::table('tbl_company')
+            ->where('company_code', $plantReference)
+            ->when(ctype_digit($plantReference), fn ($query) => $query->orWhere('id', (int) $plantReference))
+            ->select('id', 'company_code')
+            ->first();
+        $plantCode = (string) ($plant->company_code ?? $plantReference);
+        $plantDatabaseId = $plant->id ?? (ctype_digit($plantReference) ? (int) $plantReference : null);
         if (array_key_exists('opening_stock_mt', $data)) {
             $stockMt = $data['opening_stock_mt'] === null ? null : (float) $data['opening_stock_mt'];
         } else {
@@ -46,7 +54,10 @@ class ConsumptionRequirementService
         $manualReferences = $purchaseQuery ? (clone $purchaseQuery)->pluck('reference')->filter()->values()->all() : [];
         $imports = 0.0;
         $includeApiImports = ! array_key_exists('_include_api_imports', $data) || (bool) $data['_include_api_imports'];
-        if ($includeApiImports && Schema::hasTable('tbl_vendors') && $plantCode) {
+        $vendorImportColumns = ['plant_code', 'material_code', 'delivery_date', 'mt_quantity', 'purchase_order', 'status'];
+        $canReadApiImports = Schema::hasTable('tbl_vendors')
+            && collect($vendorImportColumns)->every(fn ($column) => Schema::hasColumn('tbl_vendors', $column));
+        if ($includeApiImports && $canReadApiImports && $plantCode) {
             $importQuery = DB::table('tbl_vendors')->where('status', 1)
                 ->where('material_code', $data['material'])->where('plant_code', $plantCode)
                 ->when($manualReferences !== [], fn ($query) => $query->whereNotIn('purchase_order', $manualReferences))
@@ -114,7 +125,9 @@ class ConsumptionRequirementService
                     $periodEnd = $isDatewise && $hasEffectiveTo && ! empty($row->effective_to)
                         ? \Illuminate\Support\Carbon::parse($row->effective_to)->startOfDay()
                         : $periodStart->copy()->endOfMonth()->startOfDay();
-                    $data['day_count'] = max(1, (int) round($periodStart->copy()->startOfDay()->diffInDays($periodEnd->copy()->startOfDay())) + 1);
+                    $data['day_count'] = $hasPeriodType
+                        ? max(1, (int) round($periodStart->copy()->startOfDay()->diffInDays($periodEnd->copy()->startOfDay())) + 1)
+                        : max(1, (int) ($row->day_count ?? 1));
                     if (array_key_exists('daily_consumption_mt', $data)) {
                         $data['quantity_mt'] = round((float) $data['daily_consumption_mt'] * $data['day_count'], 3);
                     }
