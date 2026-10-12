@@ -74,7 +74,10 @@ class SyncApiIntegration implements ShouldQueue
     }
     private function request($integration, string $url, bool $verifySsl): Response
     {
-        $request = Http::connectTimeout(15)->timeout((int) $integration->timeout_seconds)->withOptions(['verify' => $verifySsl])->acceptJson();
+        $request = Http::connectTimeout(15)->timeout((int) $integration->timeout_seconds)->withOptions([
+            'verify' => $verifySsl,
+            'proxy' => '',
+        ])->acceptJson();
         $credential = config('api-integrations.credentials.'.$integration->credential_env_key);
         if (in_array($integration->auth_type, ['bearer', 'api_key'], true) && blank($credential)) throw new RuntimeException("Credential {$integration->credential_env_key} is not configured.");
         if ($integration->auth_type === 'bearer') $request = $request->withToken($credential);
@@ -369,7 +372,10 @@ class SyncApiIntegration implements ShouldQueue
     private function addVendorPoolRequest(Pool $pool, string $key, $integration, string $url, bool $verifySsl): void
     {
         $request = $pool->as($key)->connectTimeout(10)->timeout(15)
-            ->withOptions(['verify' => $verifySsl])->acceptJson();
+            ->withOptions([
+                'verify' => $verifySsl,
+                'proxy' => '',
+            ])->acceptJson();
         $credential = config('api-integrations.credentials.'.$integration->credential_env_key);
         if (in_array($integration->auth_type, ['bearer', 'api_key'], true) && blank($credential)) {
             throw new RuntimeException("Credential {$integration->credential_env_key} is not configured.");
@@ -565,5 +571,4 @@ class SyncApiIntegration implements ShouldQueue
         $integration->forceFill(['last_failure_at' => now(), 'last_error' => $message])->save();
     }
 }
-
 

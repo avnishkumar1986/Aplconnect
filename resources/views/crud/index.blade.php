@@ -14,7 +14,7 @@
     $sortIcon = fn ($field) => $activeSort === $field ? ($activeDirection === 'asc' ? '↑' : '↓') : '↕';
     $statusField = collect($definition['fields'])->keys()->first(fn ($field) => strtolower($field) === 'status');
     $bulkEnabled = in_array($resource, ['addresses', 'contacts', 'accounts', 'user-types', 'companies'], true) && $statusField;
-    $showIdColumn = !in_array($resource, ['user-types', 'companies'], true);
+    $showIdColumn = !in_array($resource, ['user-types', 'companies', 'distributor-types', 'distributor-tiers'], true);
 @endphp
 <x-page-header :title="$definition['title']" :description="'Manage '.strtolower($definition['title']).' records.'">
     <span class="crud-breadcrumb">Records <b>/</b> {{ $definition['title'] }}</span>
@@ -64,7 +64,7 @@
                         @elseif(($field['type']??'')==='model')
                             @php $relationName=$field['relation']??str($name)->beforeLast('_id')->camel()->toString(); @endphp
                             {{ $record->{$relationName}?->{$field['display']} ?? $value ?? '—' }}
-                        @elseif($value instanceof \DateTimeInterface){{ $value->format('d M Y') }}
+                        @elseif($value instanceof \DateTimeInterface){{ $value->format('d.m.Y') }}
                         @else{{ is_bool($value)?($value?'Yes':'No'):($value??'—') }}@endif
                     </td>
                 @endforeach

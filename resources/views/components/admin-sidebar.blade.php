@@ -5,6 +5,10 @@
         ? \App\Models\Module::where('slug', 'procurement')->value('status')
         : null;
     $procurementModuleActive = $procurementModuleStatus === null || $procurementModuleStatus === 'active';
+    $salesModuleStatus = \Illuminate\Support\Facades\Schema::hasTable('tbl_modules')
+        ? \App\Models\Module::where('slug', 'sales')->value('status')
+        : null;
+    $salesModuleActive = $salesModuleStatus === null || $salesModuleStatus === 'active';
 @endphp
 <aside id="sidebar"
     class="corporate-sidebar fixed inset-y-0 left-0 z-50 flex w-[min(18rem,86vw)] -translate-x-full flex-col overflow-visible text-white transition-transform duration-300 ease-out lg:w-72 lg:translate-x-0">
@@ -49,6 +53,20 @@
             </x-sidebar-group>
           @endcanany
         @endif
+        @if($salesModuleActive)
+            @canany(['sales.overview.view', 'sales.orders.view', 'sales.customers.view', 'sales.targets.view', 'sales.dispatches.view', 'sales.reports.view'])
+                <x-sidebar-group id="sales-menu" title="Sales" icon="active-purchases" :open="request()->routeIs('admin.sales.*')">
+                    @can('sales.overview.view')
+                        <a class="nav-link {{ request()->routeIs('admin.sales.overview') ? 'active' : '' }}"
+                            href="{{ route('admin.sales.overview') }}"><span class="nav-label">Overview</span></a>
+                    @endcan
+                    @can('sales.customers.view')
+                        <a class="nav-link {{ request()->routeIs('admin.sales.customers.*') ? 'active' : '' }}"
+                            href="{{ route('admin.sales.customers.index') }}"><span class="nav-label">Customers</span></a>
+                    @endcan
+                </x-sidebar-group>
+            @endcanany
+        @endif
         <p class="nav-section nav-section-more">More</p>
         @can('modules.view')
             <x-sidebar-group id="modules-menu" title="Modules" icon="modules" :open="request()->routeIs('admin.modules.*')">
@@ -61,42 +79,54 @@
                 href="{{ route('admin.theme-settings.edit') }}"><span class="nav-icon"><x-app-icon
                         name="theme" /></span><span class="nav-label">Theme</span></a>
         @endcan
-        @canany(['users.view', 'user-types.view', 'companies.view', 'roles.view', 'permissions.view',
+        @canany(['users.view', 'distributors.view', 'distributor-types.view', 'distributor-tiers.view', 'user-types.view', 'companies.view', 'roles.view', 'permissions.view',
             'procurement.all_materials.view', 'api-integrations.view'])
-            <x-sidebar-group id="master-menu" title="Master Control" icon="master" :open="request()->routeIs('admin.roles.*','admin.permissions.*','admin.users.*','admin.user-types.*','admin.companies.*','admin.organization-structure.*','admin.materials.*','admin.vendors.*','admin.api-integrations.*') || (request()->routeIs('admin.dummy.show') && request()->route('section') === 'master-control')">
-                @canany(['companies.view', 'users.view', 'user-types.view'])
-                    @php($organizationOpen = request()->routeIs('admin.companies.*','admin.users.*','admin.user-types.*','admin.organization-structure.*'))
+            <x-sidebar-group id="master-menu" title="Master Control" icon="master" :open="request()->routeIs('admin.roles.*','admin.permissions.*','admin.users.*','admin.distributors.*','admin.distributor-types.*','admin.distributor-tiers.*','admin.user-types.*','admin.companies.*','admin.organization-structure.*','admin.materials.*','admin.api-integrations.*') || (request()->routeIs('admin.dummy.show') && request()->route('section') === 'master-control')">
+                @canany(['companies.view', 'users.view', 'distributors.view', 'distributor-types.view', 'distributor-tiers.view', 'user-types.view'])
+                    @php($organizationOpen = request()->routeIs('admin.companies.*','admin.users.*','admin.distributors.*','admin.distributor-types.*','admin.distributor-tiers.*','admin.user-types.*','admin.organization-structure.*'))
                     <button type="button" class="master-subsection-toggle" data-ui-sidebar-group="master-organization" aria-expanded="{{ $organizationOpen ? 'true' : 'false' }}"><span>Organization</span><svg class="{{ $organizationOpen ? 'rotate-90' : '' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
                     <div id="master-organization" class="master-subsection-menu {{ $organizationOpen ? '' : 'hidden' }}">
                 @endcanany
                 @can('companies.view')
                     <a class="nav-link {{ request()->routeIs('admin.companies.*') ? 'active' : '' }}"
-                        href="{{ route('admin.companies.index') }}"><span class="nav-label">Companies & Plants</span></a>
+                        href="{{ route('admin.companies.index') }}"><span class="nav-icon"><x-app-icon name="company" /></span><span class="nav-label">Companies & Plants</span></a>
                 @endcan
                 @can('users.view')
                     <a class="nav-link {{ request()->routeIs('admin.users.*') ? 'active' : '' }}"
-                        href="{{ route('admin.users.index') }}"><span class="nav-label">Users</span></a>
+                        href="{{ route('admin.users.index') }}"><span class="nav-icon"><x-app-icon name="users" /></span><span class="nav-label">Employees</span></a>
+                @endcan
+                @can('distributors.view')
+                    <a class="nav-link {{ request()->routeIs('admin.distributors.*') ? 'active' : '' }}"
+                        href="{{ route('admin.distributors.index') }}"><span class="nav-icon"><x-app-icon name="accounts" /></span><span class="nav-label">Distributors</span></a>
+                @endcan
+                @can('distributor-types.view')
+                    <a class="nav-link {{ request()->routeIs('admin.distributor-types.*') ? 'active' : '' }}"
+                        href="{{ route('admin.distributor-types.index') }}"><span class="nav-icon"><x-app-icon name="user-types" /></span><span class="nav-label">Distributor Types</span></a>
+                @endcan
+                @can('distributor-tiers.view')
+                    <a class="nav-link {{ request()->routeIs('admin.distributor-tiers.*') ? 'active' : '' }}"
+                        href="{{ route('admin.distributor-tiers.index') }}"><span class="nav-icon"><x-app-icon name="active-purchases" /></span><span class="nav-label">Distributor Tiers</span></a>
                 @endcan
                 @can('user-types.view')
                     <a class="nav-link {{ request()->routeIs('admin.user-types.*') ? 'active' : '' }}"
-                        href="{{ route('admin.user-types.index') }}"><span class="nav-label">User Types</span></a>
+                        href="{{ route('admin.user-types.index') }}"><span class="nav-icon"><x-app-icon name="user-types" /></span><span class="nav-label">User Types</span></a>
                 @endcan
                 @can('users.view')
                     <a class="nav-link {{ request()->routeIs('admin.organization-structure.*') ? 'active' : '' }}"
-                        href="{{ route('admin.organization-structure.index') }}"><span class="nav-label">Departments</span></a>
+                        href="{{ route('admin.organization-structure.index') }}"><span class="nav-icon"><x-app-icon name="modules" /></span><span class="nav-label">Departments</span></a>
                 @endcan
-                @canany(['companies.view', 'users.view', 'user-types.view'])
+                @canany(['companies.view', 'users.view', 'distributors.view', 'distributor-types.view', 'distributor-tiers.view', 'user-types.view'])
                     </div>
                 @endcanany
                 @if($procurementModuleActive)
                   @can('procurement.all_materials.view')
-                    @php($procurementMasterOpen = request()->routeIs('admin.materials.*','admin.vendors.*'))
+                    @php($procurementMasterOpen = request()->routeIs('admin.materials.*','admin.procurement.vendor-data'))
                     <button type="button" class="master-subsection-toggle" data-ui-sidebar-group="master-procurement" aria-expanded="{{ $procurementMasterOpen ? 'true' : 'false' }}"><span>Procurement</span><svg class="{{ $procurementMasterOpen ? 'rotate-90' : '' }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
                     <div id="master-procurement" class="master-subsection-menu {{ $procurementMasterOpen ? '' : 'hidden' }}">
                     <a class="nav-link {{ request()->routeIs('admin.materials.*') ? 'active' : '' }}"
-                        href="{{ route('admin.materials.index') }}"><span class="nav-label">All Materials</span></a>
-                    <a class="nav-link {{ request()->routeIs('admin.vendors.*') ? 'active' : '' }}"
-                        href="{{ route('admin.vendors.index') }}"><span class="nav-label">Vendors</span></a>
+                        href="{{ route('admin.materials.index') }}"><span class="nav-icon"><x-app-icon name="materials" /></span><span class="nav-label">All Materials</span></a>
+                    <a class="nav-link {{ request()->routeIs('admin.procurement.vendor-data') ? 'active' : '' }}"
+                        href="{{ route('admin.procurement.vendor-data') }}"><span class="nav-icon"><x-app-icon name="procurement" /></span><span class="nav-label">Vendor API Data</span></a>
                     </div>
                   @endcan
                 @endif
@@ -107,15 +137,15 @@
                 @endcanany
                 @can('roles.view')
                     <a class="nav-link {{ request()->routeIs('admin.roles.*') ? 'active' : '' }}"
-                        href="{{ route('admin.roles.index') }}"><span class="nav-label">Roles</span></a>
+                        href="{{ route('admin.roles.index') }}"><span class="nav-icon"><x-app-icon name="roles" /></span><span class="nav-label">Roles</span></a>
                 @endcan
                 @can('permissions.view')
                     <a class="nav-link {{ request()->routeIs('admin.permissions.*') ? 'active' : '' }}"
-                        href="{{ route('admin.permissions.index') }}"><span class="nav-label">Permissions</span></a>
+                        href="{{ route('admin.permissions.index') }}"><span class="nav-icon"><x-app-icon name="permissions" /></span><span class="nav-label">Permissions</span></a>
                 @endcan
                 @can('api-integrations.view')
                     <a class="nav-link {{ request()->routeIs('admin.api-integrations.*') ? 'active' : '' }}"
-                        href="{{ route('admin.api-integrations.index') }}"><span class="nav-label">Integrations</span></a>
+                        href="{{ route('admin.api-integrations.index') }}"><span class="nav-icon"><x-app-icon name="settings" /></span><span class="nav-label">Integrations</span></a>
                 @endcan
                 @canany(['roles.view', 'permissions.view', 'api-integrations.view'])
                     </div>

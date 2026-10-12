@@ -12,6 +12,8 @@ class UserProfile extends Model
 
     public function employmentDepartment() { return $this->hasOne(EmployeeDepartment::class, 'user_id'); }
     public function distributorProfile() { return $this->hasOne(DistributorProfile::class, 'user_id'); }
+    public function distributorSubsidiaries() { return $this->hasMany(DistributorSubsidiary::class, 'distributor_user_id'); }
+    public function distributorTargets() { return $this->hasMany(DistributorTarget::class, 'user_id')->orderByDesc('target_year')->orderBy('target_month'); }
     public function userType() { return $this->belongsTo(UserType::class, 'type_code', 'type_code'); }
     public function company() { return $this->hasOneThrough(Company::class, EmployeeDepartment::class, 'user_id', 'company_code', 'id', 'company_id'); }
     public function sittingLocation() { return $this->hasOneThrough(Company::class, EmployeeDepartment::class, 'user_id', 'id', 'id', 'sitting_location_id'); }

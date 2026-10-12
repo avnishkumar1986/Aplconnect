@@ -5,7 +5,10 @@
     var plant = document.getElementById('balance-plant');
     var group = document.getElementById('balance-material-group');
     var material = document.getElementById('balance-material');
-    if (!company || !plant || !group || !material) return;
+    if (!company || !plant || !material) return;
+
+    var form = material.closest('form');
+    var submitting = false;
 
     var plantOptions = Array.prototype.slice.call(plant.options, 1).map(function (option) { return option.cloneNode(true); });
     var materialOptions = Array.prototype.slice.call(material.options).map(function (option) { return option.cloneNode(true); });
@@ -22,6 +25,7 @@
     }
 
     function refreshMaterials(keepSelection) {
+        if (!group) return;
         var selected = keepSelection ? (material.dataset.selected || material.value) : '';
         material.replaceChildren(new Option('— Select material —', ''));
         materialOptions.filter(function (option) {
@@ -35,15 +39,25 @@
     }
 
     company.addEventListener('change', function () { refreshPlants(false); });
-    group.addEventListener('change', function () { refreshMaterials(false); });
+    if (group) group.addEventListener('change', function () { refreshMaterials(false); });
+    material.addEventListener('change', function () {
+        if (!form || submitting || !material.value) return;
+        submitting = true;
+        form.requestSubmit();
+    });
     function bindSelect2Dependencies() {
-        if (!window.jQuery || group.dataset.balanceFilterBound === 'true') return;
-        group.dataset.balanceFilterBound = 'true';
+        if (!window.jQuery || material.dataset.balanceFilterBound === 'true') return;
+        material.dataset.balanceFilterBound = 'true';
         window.jQuery(company).on('select2:select select2:clear', function () { refreshPlants(false); });
-        window.jQuery(group).on('select2:select select2:clear', function () { refreshMaterials(false); });
+        if (group) window.jQuery(group).on('select2:select select2:clear', function () { refreshMaterials(false); });
+        window.jQuery(material).on('select2:select', function () {
+            if (!form || submitting || !material.value) return;
+            submitting = true;
+            form.requestSubmit();
+        });
     }
     bindSelect2Dependencies();
     document.addEventListener('DOMContentLoaded', bindSelect2Dependencies, { once: true });
     refreshPlants(true);
-    refreshMaterials(true);
+    if (group) refreshMaterials(true);
 }());

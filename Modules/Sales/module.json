@@ -1,0 +1,7 @@
+{
+    "name": "Sales",
+    "slug": "sales",
+    "version": "1.0.0",
+    "description": "Sales operations workspace for APL and KPL.",
+    "status": "active"
+}

@@ -1,0 +1,1 @@
+@extends('sales::customers.index')

@@ -10,7 +10,11 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <title>@yield('title', 'APL Connect')</title>
+    <title>@hasSection('title')@yield('title') | APL Connect @else APL Connect @endif</title>
+
+    <link rel="icon" type="image/png" href="{{ asset('images/apl-favicon.png') }}?v={{ filemtime(public_path('images/apl-favicon.png')) }}">
+    <link rel="shortcut icon" type="image/png" href="{{ asset('images/apl-favicon.png') }}?v={{ filemtime(public_path('images/apl-favicon.png')) }}">
+    <link rel="apple-touch-icon" href="{{ asset('images/apl-favicon.png') }}?v={{ filemtime(public_path('images/apl-favicon.png')) }}">
 
     @viteReactRefresh
     @vite([

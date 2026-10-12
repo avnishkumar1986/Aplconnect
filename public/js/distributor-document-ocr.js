@@ -51,6 +51,8 @@
             const image = document.createElement('img');
             image.src = url;
             image.alt = `${type.toUpperCase()} document preview`;
+            image.tabIndex = 0;
+            image.title = 'Click to zoom';
             preview.append(image);
         } else if (file.type === 'application/pdf') {
             const object = document.createElement('object');
@@ -66,6 +68,31 @@
             link.textContent = `Open ${file.name}`;
             preview.append(link);
         }
+    };
+
+    const openZoom = image => {
+        const viewer = document.createElement('div');
+        viewer.className = 'document-zoom-viewer';
+        viewer.setAttribute('role', 'dialog');
+        viewer.setAttribute('aria-modal', 'true');
+        viewer.setAttribute('aria-label', image.alt || 'Document preview');
+        viewer.innerHTML = '<button type="button" aria-label="Close image preview">×</button><div><img alt=""></div><p>Use mouse wheel or the buttons to zoom</p><nav><button type="button" data-zoom-out aria-label="Zoom out">−</button><strong>100%</strong><button type="button" data-zoom-in aria-label="Zoom in">+</button><button type="button" data-zoom-reset>Reset</button></nav>';
+        const zoomImage = viewer.querySelector('img');
+        zoomImage.src = image.currentSrc || image.src;
+        zoomImage.alt = image.alt || 'Document preview';
+        let scale = 1;
+        const render = () => { zoomImage.style.transform = `scale(${scale})`; viewer.querySelector('nav strong').textContent = `${Math.round(scale * 100)}%`; };
+        const close = () => { viewer.remove(); document.removeEventListener('keydown', onKey); };
+        const onKey = event => { if (event.key === 'Escape') close(); if (event.key === '+') { scale = Math.min(3, scale + .2); render(); } if (event.key === '-') { scale = Math.max(.5, scale - .2); render(); } };
+        viewer.querySelector(':scope > button').addEventListener('click', close);
+        viewer.addEventListener('click', event => { if (event.target === viewer) close(); });
+        viewer.querySelector('[data-zoom-in]').addEventListener('click', () => { scale = Math.min(3, scale + .2); render(); });
+        viewer.querySelector('[data-zoom-out]').addEventListener('click', () => { scale = Math.max(.5, scale - .2); render(); });
+        viewer.querySelector('[data-zoom-reset]').addEventListener('click', () => { scale = 1; render(); });
+        viewer.querySelector('div').addEventListener('wheel', event => { event.preventDefault(); scale = Math.max(.5, Math.min(3, scale + (event.deltaY < 0 ? .15 : -.15))); render(); }, { passive: false });
+        document.addEventListener('keydown', onKey);
+        document.body.append(viewer);
+        viewer.querySelector(':scope > button').focus();
     };
 
     const bind = input => {
@@ -113,6 +140,8 @@
     };
 
     document.addEventListener('DOMContentLoaded', () => mount(document));
+    document.addEventListener('click', event => { const image = event.target.closest('[data-document-preview] img'); if (image) openZoom(image); });
+    document.addEventListener('keydown', event => { if ((event.key === 'Enter' || event.key === ' ') && event.target.matches('[data-document-preview] img')) { event.preventDefault(); openZoom(event.target); } });
     new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => {
         if (node.nodeType === 1) mount(node);
     }))).observe(document.documentElement, { childList: true, subtree: true });

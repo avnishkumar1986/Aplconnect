@@ -1,5 +1,5 @@
 @extends('layout.app')
-@section('title', 'Users')
+@section('title', 'Employees')
 @section('content')
     @php
         $activeSort = request('sort', 'id');
@@ -13,27 +13,15 @@
         $sortIcon = fn(string $field) => $activeSort === $field ? ($activeDirection === 'asc' ? '↑' : '↓') : '↕';
     @endphp
 
-    <x-page-header title="Users" description="Manage employee records from the users database.">
-        <span class="crud-breadcrumb">Master Control <b>/</b> Users</span>
+    <x-page-header title="Employees" description="Manage employee records and account access.">
+        <span class="crud-breadcrumb">Master Control <b>/</b> Employees</span>
     </x-page-header>
 
     <section class="crud-list-card">
         <div class="crud-toolbar" data-datatable-toolbar-for="users-datatable">
-            @can('users.edit')
-                <form class="user-bulk-actions" method="POST" action="{{ route('admin.users.bulk-action') }}" data-user-bulk-form>
-                    @csrf
-                    <select name="action" required aria-label="Bulk action">
-                        <option value="">Bulk actions</option>
-                        <option value="activate">Activate</option>
-                        <option value="deactivate">Deactivate</option>
-                    </select>
-                    <button type="submit" disabled>Apply</button>
-                    <span data-selected-count>0 selected</span>
-                </form>
-            @endcan
             @can('users.create')
-                <a class="crud-add" data-form-modal data-modal-title="Create User"
-                    href="{{ route('admin.users.create') }}"><span>＋</span> Add New User</a>
+                <a class="crud-add" data-form-modal data-modal-title="Create Employee"
+                    href="{{ route('admin.users.create') }}"><span>＋</span> Add Employee</a>
             @endcan
         </div>
 
@@ -42,16 +30,29 @@
             <div class="crud-table-wrap">
                 <table class="crud-table nowrap" id="users-datatable">
                     <thead>
+                        @can('users.edit')
+                            <tr class="user-table-bulk-row">
+                                <th colspan="16" data-dt-order="disable">
+                                    <form class="user-bulk-actions" method="POST" action="{{ route('admin.users.bulk-action') }}" data-user-bulk-form>
+                                        @csrf
+                                        <strong>Selected rows</strong>
+                                        <select name="action" required aria-label="Bulk action">
+                                            <option value="">Choose bulk action</option>
+                                            <option value="activate">Activate</option>
+                                            <option value="deactivate">Deactivate</option>
+                                        </select>
+                                        <button type="submit" disabled>Apply action</button>
+                                        <span data-selected-count>0 selected</span>
+                                    </form>
+                                </th>
+                            </tr>
+                        @endcan
                         <tr>
                             <th data-priority="1"></th>
                             <th class="check"><input type="checkbox" data-select-all-users aria-label="Select all users"></th>
                             <th>S.NO.</th>
-                            <th><a class="table-sort" data-sort-link href="{{ $sortUrl('id') }}">ID
-                                    <i>{{ $sortIcon('id') }}</i></a></th>
-                            <th><a class="table-sort" data-sort-link href="{{ $sortUrl('first_name') }}">First Name
+                            <th><a class="table-sort" data-sort-link href="{{ $sortUrl('first_name') }}">Full Name
                                     <i>{{ $sortIcon('first_name') }}</i></a></th>
-                            <th><a class="table-sort" data-sort-link href="{{ $sortUrl('last_name') }}">Last Name
-                                    <i>{{ $sortIcon('last_name') }}</i></a></th>
                             <th>Designation</th>
                             
                             <th>Company</th>
@@ -86,21 +87,19 @@
                                 <td class="check"><input type="checkbox" value="{{ $user->id }}" data-user-select aria-label="Select user {{ $user->id }}">
                                 </td>
                                 <td class="record-serial">{{ $loop->iteration }}</td>
-                                <td class="record-id">#{{ $user->id }}</td>
-                                <td><strong>{{ $user->first_name }}</strong></td>
-                                <td>{{ $user->last_name }}</td>
+                                <td><strong>{{ $user->full_name }}</strong></td>
                                 <td>{{ $user->designation?->designation_name ?? '—' }}</td>
                                 <td>{{ $user->company?->company_name ?? '—' }}</td>
                                 <td>{{ $user->sittingLocation?->company_name ?? '—' }}</td>
                                 <td>{{ $user->department?->department_name ?? '—' }}</td>
                                 <td>{{ $gender[(string) $user->gender] ?? '—' }}</td>
-                                <td>{{ $user->date_of_birth?->format('d M Y') ?? '—' }}</td>
+                                <td>{{ $user->date_of_birth?->format('d.m.Y') ?? '—' }}</td>
                                 <td>{{ $user->contact?->contact_value ?? '—' }}</td>
                                 <td>{{ $user->emailContacts->pluck('contact_value')->implode(', ') ?: '—' }}</td>
                                 <td><span
                                         class="status-pill {{ $user->status ? 'active' : 'inactive' }}">{{ $user->status ? 'Active' : 'Inactive' }}</span>
                                 </td>
-                                <td>{{ $user->updated_at?->format('d M Y, h:i A') ?? '—' }}</td>
+                                <td data-order="{{ $user->updated_at?->timestamp ?? 0 }}">{{ $user->updated_at?->format('d.m.Y, h:i A') ?? '—' }}</td>
                                 <td>{{ $user->updatedBy?->name ?? ($user->updated_by ? '#' . $user->updated_by : '—') }}</td>
                                 <td>
                                     <div class="row-actions">
@@ -110,8 +109,8 @@
                                             </a>
                                         @endcan
                                         @can('users.edit')
-                                            <a class="edit user-action-button user-action-edit" data-form-modal data-modal-title="Edit User"
-                                                href="{{ route('admin.users.edit', $user) }}" aria-label="Edit {{ $user->full_name }}" title="Edit user"><svg
+                                            <a class="edit user-action-button user-action-edit" data-form-modal data-modal-title="Edit Employee"
+                                                href="{{ route('admin.users.edit', $user) }}" aria-label="Edit {{ $user->full_name }}" title="Edit employee"><svg
                                                     viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                     <path d="M12 20h9" />
                                                     <path d="m16.5 3.5 4 4L8 20l-5 1 1-5Z" />
@@ -119,8 +118,8 @@
                                         @endcan
                                         @can('users.delete')
                                             <form method="POST" action="{{ route('admin.users.destroy', $user) }}"
-                                                onsubmit="return confirm('Delete this user?')">@csrf @method('DELETE')<button
-                                                    class="delete user-action-button user-action-delete" type="submit" aria-label="Delete {{ $user->full_name }}" title="Delete user"><svg
+                                                onsubmit="return confirm('Delete this employee?')">@csrf @method('DELETE')<button
+                                                    class="delete user-action-button user-action-delete" type="submit" aria-label="Delete {{ $user->full_name }}" title="Delete employee"><svg
                                                         viewBox="0 0 24 24" fill="none" stroke="currentColor"
                                                         stroke-width="2">
                                                         <path d="M3 6h18M8 6V4h8v2M6 6l1 15h10l1-15" />
@@ -144,6 +143,11 @@
     .user-bulk-actions button{height:40px;border:0;border-radius:8px;background:#334155;padding:0 16px;color:#fff;font-size:14px;font-weight:700;cursor:pointer}
     .user-bulk-actions button:disabled{cursor:not-allowed;opacity:.45}
     .user-bulk-actions [data-selected-count]{color:#64748b;font-size:13px;white-space:nowrap}
+    #users-datatable thead tr.user-table-bulk-row th{border-bottom:1px solid #dce5ee!important;background:#f8fbfc!important;padding:10px 18px!important;text-align:left!important}
+    #users-datatable thead tr.user-table-bulk-row th::before,#users-datatable thead tr.user-table-bulk-row th::after{display:none!important}
+    #users-datatable .user-table-bulk-row .user-bulk-actions{justify-content:flex-start}
+    #users-datatable .user-table-bulk-row .user-bulk-actions>strong{margin-right:4px;color:#243b55;font-size:12px}
+    @media(max-width:640px){#users-datatable thead tr.user-table-bulk-row th{padding:10px!important}#users-datatable .user-table-bulk-row .user-bulk-actions>strong{width:100%}}
     #users-datatable_wrapper .user-action-view{border-color:#bfdbfe!important;background:#eff6ff!important;color:#2563eb!important}
     #users-datatable_wrapper .user-action-view:hover{border-color:#93c5fd!important;background:#dbeafe!important;color:#1d4ed8!important;transform:translateY(-1px)}
 </style>

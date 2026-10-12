@@ -24,6 +24,14 @@ export default function RoleForm(p) {
         'dashboard.view',
     ]));
     const [saving, setSaving] = useState(false);
+    const isOrganizationIndependent = ['distributor', 'vendor'].includes(name.trim().toLowerCase());
+
+    useEffect(() => {
+        if (!isOrganizationIndependent) return;
+        setCompanyIds([]);
+        setDepartmentId('');
+        setDesignationId('');
+    }, [isOrganizationIndependent]);
     const designations = useMemo(() => p.designations.filter(item => !departmentId || !item.departmentId || item.departmentId === departmentId), [p.designations, departmentId]);
     const permissionActions = useMemo(() => {
         const standard = ['view', 'create', 'edit', 'delete'];
@@ -50,7 +58,7 @@ export default function RoleForm(p) {
     }, [p.permissions]);
     const error = field => p.errors?.[field]?.[0];
     const toggleCompany = value => setCompanyIds(current => current.includes(value) ? current.filter(id => id !== value) : [...current, value]);
-    const companySummary = companyIds.length ? p.companies.filter(item => companyIds.includes(item.value)).map(item => item.label).join(', ') : 'All companies';
+    const companySummary = companyIds.length ? p.companies.filter(item => companyIds.includes(item.value)).map(item => item.label).join(', ') : 'Default — All companies';
     const editablePermissions = useMemo(() => p.permissions.filter(permission => permission.name !== 'dashboard.view'), [p.permissions]);
     const selectionState = permissions => {
         const selectedCount = permissions.filter(permission => selectedPermissions.has(permission.name)).length;
@@ -85,9 +93,16 @@ export default function RoleForm(p) {
             {p.editing && <input type="hidden" name="_method" value="PUT" />}
             <div className="corporate-form-grid">
                 <div className="form-field"><label className="label" htmlFor="role-name">Role name</label><input className="input" id="role-name" name="name" value={name} onChange={event => setName(event.target.value)} required />{error('name') && <p className="mt-1 text-sm text-red-600">{error('name')}</p>}</div>
-                <div className="form-field"><label className="label">Companies</label><details className="role-company-dropdown"><summary>{companySummary}</summary><div className="role-company-options">{p.companies.map(item => <label key={item.value}><input type="checkbox" name="company_ids[]" value={item.value} checked={companyIds.includes(item.value)} onChange={event => { toggleCompany(item.value); event.currentTarget.closest('details')?.removeAttribute('open'); }} /><span>{item.label}</span></label>)}</div></details>{error('company_ids') && <p className="mt-1 text-sm text-red-600">{error('company_ids')}</p>}</div>
-                <div className="form-field"><label className="label" htmlFor="role-department">Department</label><select className="input" id="role-department" name="department_id" value={departmentId} onChange={event => { setDepartmentId(event.target.value); setDesignationId(''); }}><option value="">All departments</option>{p.departments.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{error('department_id') && <p className="mt-1 text-sm text-red-600">{error('department_id')}</p>}</div>
-                <div className="form-field"><label className="label" htmlFor="role-designation">Designation</label><select className="input" id="role-designation" name="designation_id" value={designationId} onChange={event => setDesignationId(event.target.value)}><option value="">All designations</option>{designations.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{error('designation_id') && <p className="mt-1 text-sm text-red-600">{error('designation_id')}</p>}</div>
+                {isOrganizationIndependent ? <div className="form-field md:col-span-3">
+                    <input type="hidden" name="company_ids[]" value="0" />
+                    <input type="hidden" name="department_id" value="0" />
+                    <input type="hidden" name="designation_id" value="0" />
+                    <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-slate-700"><strong>Organization mapping: Default (0).</strong> Vendor and Distributor access is independent of company, department, and designation.</div>
+                </div> : <>
+                    <div className="form-field"><label className="label">Companies</label><details className="role-company-dropdown"><summary>{companySummary}</summary><div className="role-company-options">{p.companies.map(item => <label key={item.value}><input type="checkbox" name="company_ids[]" value={item.value} checked={companyIds.includes(item.value)} onChange={event => { toggleCompany(item.value); event.currentTarget.closest('details')?.removeAttribute('open'); }} /><span>{item.label}</span></label>)}</div></details>{error('company_ids') && <p className="mt-1 text-sm text-red-600">{error('company_ids')}</p>}</div>
+                    <div className="form-field"><label className="label" htmlFor="role-department">Department</label><select className="input" id="role-department" name="department_id" value={departmentId} onChange={event => { setDepartmentId(event.target.value); setDesignationId(''); }}><option value="">Default — All departments</option>{p.departments.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{error('department_id') && <p className="mt-1 text-sm text-red-600">{error('department_id')}</p>}</div>
+                    <div className="form-field"><label className="label" htmlFor="role-designation">Designation</label><select className="input" id="role-designation" name="designation_id" value={designationId} onChange={event => setDesignationId(event.target.value)}><option value="">Default — All designations</option>{designations.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>{error('designation_id') && <p className="mt-1 text-sm text-red-600">{error('designation_id')}</p>}</div>
+                </>}
             </div>
             <h2 className="mb-3 mt-6 font-bold">Permissions</h2>
             <div className="wizard-record-table-wrap">

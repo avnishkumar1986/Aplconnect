@@ -105,7 +105,16 @@ class RoleController extends Controller
 
     private function validated(Request $request, ?Role $role = null): array
     {
-        return $request->validate([
+        $organizationIndependent = in_array(strtolower(trim((string) $request->input('name'))), ['distributor', 'vendor'], true);
+        if ($organizationIndependent) {
+            $request->merge([
+                'company_ids' => [],
+                'department_id' => null,
+                'designation_id' => null,
+            ]);
+        }
+
+        $data = $request->validate([
             'name' => ['required', 'max:100', Rule::unique('roles', 'name')->ignore($role?->id)],
             'company_ids' => ['nullable', 'array'],
             'company_ids.*' => ['integer', 'distinct', 'exists:tbl_company,id'],
@@ -114,6 +123,14 @@ class RoleController extends Controller
             'permissions' => ['nullable', 'array'],
             'permissions.*' => ['string', 'exists:permissions,name'],
         ]);
+
+        if ($organizationIndependent) {
+            $data['company_ids'] = [];
+            $data['department_id'] = null;
+            $data['designation_id'] = null;
+        }
+
+        return $data;
     }
 
     private function organizationMapping(array $data): array

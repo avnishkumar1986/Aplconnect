@@ -32,14 +32,14 @@
                         <tr>
                             <td></td>
                             <td>{{ $loop->iteration }}</td>
-                            <td>{{ $entry->purchase_date }}</td>
+                            <td data-order="{{ $entry->purchase_date }}">{{ \Illuminate\Support\Carbon::parse($entry->purchase_date)->format('d.m.Y') }}</td>
                             <td>{{ $entry->company_name }}</td>
                             <td>{{ $entry->plant_name }}</td>
                             <td>{{ $entry->vendor_name }}</td>
                             <td>{{ $materials[$entry->material] ?? $entry->material }}</td>
                             <td>{{ number_format($entry->quantity_mt, 3) }}</td>
                             <td>{{ $entry->current_stock_mt === null ? 'N/A' : number_format($entry->current_stock_mt, 3) }}</td>
-                            <td>{{ $entry->expected_delivery_date }}</td>
+                            <td data-order="{{ $entry->expected_delivery_date }}">{{ \Illuminate\Support\Carbon::parse($entry->expected_delivery_date)->format('d.m.Y') }}</td>
                             <td>
                                 @can('procurement.purchases.create')
                                 <form method="POST" action="{{ route('admin.procurement.purchases.delivery-status', $entry->id) }}">@csrf @method('PATCH')

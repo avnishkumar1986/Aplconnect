@@ -2,6 +2,7 @@
 @section('title', ($record->exists ? 'Edit ' : 'Create ') . $definition['title'])
 @section('content')
     @php
+        $vendorMode = $vendorMode ?? false;
         $reactFields = collect($definition['fields'])
             ->map(function ($field, $name) use ($options) {
                 $type = $field['type'] ?? 'text';
@@ -44,12 +45,17 @@
                 return [$name => $value === null ? '' : (string) $value];
             })
             ->all();
+        if ($vendorMode) {
+            $values['type_code'] = old('type_code', $record->type_code ?: $vendorTypeCode);
+        } elseif (! $record->exists) {
+            $values['type_code'] = old('type_code', $employeeTypeCode);
+        }
                 $education = $record->exists ? $record->primaryEducation : null;
                 $values = array_merge($values, [
             'username' => old('username', $record->login?->username ?? ''),
             'password' => '',
             'password_confirmation' => '',
-            'role_id' => old('role_id', $record->employmentDepartment?->role_id ?? $record->login?->roles->first()?->id ?? ''),
+            'role_id' => $vendorMode ? (string) $vendorRoleId : old('role_id', $record->employmentDepartment?->role_id ?? $record->login?->roles->first()?->id ?? ''),
             'new_education_level' => old('new_education_level', $education?->education_level ?? ''),
             'new_degree_name' => old('new_degree_name', $education?->degree_name ?? ''),
             'new_institution_name' => old('new_institution_name', $education?->institution_name ?? ''),
@@ -64,6 +70,7 @@
             'distributor_business_name' => old('distributor_business_name', $record->business_name ?? $record->distributorProfile?->business_name ?? ''),
             'distributor_legal_business_name' => old('distributor_legal_business_name', $record->legal_business_name ?? $record->distributorProfile?->legal_business_name ?? ''),
             'distributor_category' => old('distributor_category', $record->distributor_category ?? $record->distributorProfile?->distributor_category ?? ''),
+            'distributor_tier_code' => old('distributor_tier_code', $record->distributorProfile?->distributor_tier_code ?? ''),
             'distributor_company_association' => old('distributor_company_association', $record->distributorProfile?->company_association ?? ''),
             'distributor_applicable_plants' => old('distributor_applicable_plants', $record->distributorProfile?->applicable_plants ?? []),
             'distributor_material_groups' => old('distributor_material_groups', $record->distributorProfile?->material_groups ?? []),
@@ -80,11 +87,13 @@
             'distributor_bank_branch' => old('distributor_bank_branch', $record->distributorProfile?->bank_branch ?? ''),
         ]);
         $formProps = [
-            'title' => $record->exists ? 'Edit user' : 'Create user',
-            'description' => 'Complete the employee, designation and account details below.',
-            'action' => $record->exists ? route('admin.users.update', $record) : route('admin.users.store'),
+            'distributorMode' => $vendorMode,
+            'lockUserType' => true,
+            'title' => $record->exists ? ($vendorMode ? 'Edit distributor' : 'Edit employee') : ($vendorMode ? 'Create distributor' : 'Create employee'),
+            'description' => $vendorMode ? 'Complete the distributor, contact, address and account details below.' : 'Complete the employee, designation and account details below.',
+            'action' => $record->exists ? route($vendorMode ? 'admin.distributors.update' : 'admin.users.update', $record) : route($vendorMode ? 'admin.distributors.store' : 'admin.users.store'),
             'method' => $record->exists ? 'PUT' : 'POST',
-            'cancelUrl' => route('admin.users.index'),
+            'cancelUrl' => route($vendorMode ? 'admin.distributors.index' : 'admin.users.index'),
             'fields' => $reactFields,
             'values' => $values,
             'errors' => $errors->toArray(),
@@ -94,6 +103,8 @@
                 ->all(),
             'supplierOptions' => $supplierOptions ?? [],
             'materialGroupOptions' => $materialGroupOptions ?? [],
+            'distributorTypeOptions' => $distributorTypeOptions ?? [],
+            'distributorTierOptions' => $distributorTierOptions ?? [],
             'supplierDocuments' => $supplierDocuments ?? [],
             'distributorCancelledChequeUrl' => $record->distributorProfile?->cancelled_cheque_path
                 ? asset('storage/' . $record->distributorProfile->cancelled_cheque_path)
@@ -130,6 +141,26 @@
                             'longitude' => $address->longitude === null ? '' : (string) $address->longitude,
                         ],
                     )
+                    ->values()
+                    ->all()
+                : [],
+            'initialSubsidiaries' => $record->exists
+                ? $record->distributorSubsidiaries
+                    ->map(fn($subsidiary) => [
+                        'id' => (string) $subsidiary->id,
+                        'name' => (string) $subsidiary->subsidiary_name,
+                        'phone' => (string) $subsidiary->phone_number,
+                        'email' => (string) $subsidiary->email,
+                        'line_1' => (string) ($subsidiary->address_line_1 ?? ''),
+                        'line_2' => (string) ($subsidiary->address_line_2 ?? ''),
+                        'city' => (string) ($subsidiary->city ?? ''),
+                        'district' => (string) ($subsidiary->district ?? ''),
+                        'state' => (string) ($subsidiary->state ?? ''),
+                        'postal_code' => (string) ($subsidiary->postal_code ?? ''),
+                        'country' => (string) ($subsidiary->country ?? 'India'),
+                        'latitude' => $subsidiary->latitude === null ? '' : (string) $subsidiary->latitude,
+                        'longitude' => $subsidiary->longitude === null ? '' : (string) $subsidiary->longitude,
+                    ])
                     ->values()
                     ->all()
                 : [],

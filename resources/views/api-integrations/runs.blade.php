@@ -33,8 +33,8 @@
                             —
                         @endif
                     </td>
-                    <td data-order="{{ $run->started_at?->timestamp ?? 0 }}">{{ $run->started_at?->format('d M Y H:i:s') }}</td>
-                    <td data-order="{{ $run->completed_at?->timestamp ?? 0 }}">{{ $run->completed_at?->format('d M Y H:i:s') ?? '—' }}</td>
+                    <td data-order="{{ $run->started_at?->timestamp ?? 0 }}">{{ $run->started_at?->format('d.m.Y H:i:s') }}</td>
+                    <td data-order="{{ $run->completed_at?->timestamp ?? 0 }}">{{ $run->completed_at?->format('d.m.Y H:i:s') ?? '—' }}</td>
                     <td>{{ $run->http_status ?? '—' }}</td>
                     <td>{{ $run->records_received }}</td>
                     <td>{{ $run->records_saved }}</td>

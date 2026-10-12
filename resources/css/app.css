@@ -183,6 +183,9 @@ div.dt-container .dt-paging .dt-paging-button{display:inline-flex!important;alig
 div.dt-container .dt-paging .dt-paging-button.current{border-color:#99dce1!important;background:#ecfeff!important;color:#0e7490!important;font-weight:700!important}
 div.dt-container .dt-paging .dt-paging-button:hover:not(.disabled){border-color:#94a3b8!important;background:#f1f5f9!important;color:#0f172a!important}
 div.dt-container .dt-paging .dt-paging-button.disabled{opacity:.45!important}
+div.dt-container .dt-paging nav{display:flex;align-items:center;gap:7px}
+div.dt-container .dt-paging .dt-paging-button.previous,div.dt-container .dt-paging .dt-paging-button.next{width:auto!important;min-width:70px!important;padding:0 13px!important}
+div.dt-container .dt-paging .dt-page-indicator{display:inline-flex;height:34px;min-width:82px;align-items:center;justify-content:center;border:1px solid #99dce1;border-radius:7px;background:#ecfeff;padding:0 12px;color:#0e7490;font-size:12px;font-weight:700;white-space:nowrap}
 .btn-primary,.btn-secondary,.btn-danger,.crud-add,.view-detail,.planning-btn{min-height:40px;border-radius:8px!important;padding:0 14px!important;font-size:12px!important;font-weight:700!important;line-height:1!important;gap:8px;white-space:nowrap;box-shadow:0 1px 2px rgba(15,23,42,.06);transition:transform .15s,box-shadow .15s,border-color .15s,background .15s}
 .btn-primary:hover,.btn-secondary:hover,.btn-danger:hover,.crud-add:hover,.view-detail:hover,.planning-btn:hover{transform:translateY(-1px);box-shadow:0 5px 12px rgba(15,23,42,.10)}
 .row-actions{display:flex!important;align-items:center!important;gap:7px!important;flex-wrap:nowrap}

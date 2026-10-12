@@ -1,5 +1,5 @@
 <?php
-use App\Http\Controllers\{ActionLogController,ApiIntegrationController,AuthController,CompanyController,CrudController,DashboardController,IndiaLocationController,ModuleController,OrganizationStructureController,PermissionController,RoleController,StatusController,ThemeSettingController,UserController,UserTypeController};
+use App\Http\Controllers\{ActionLogController,ApiIntegrationController,AuthController,CompanyController,CrudController,DashboardController,DistributorTierController,DistributorTypeController,IndiaLocationController,ModuleController,OrganizationStructureController,PermissionController,RoleController,StatusController,ThemeSettingController,UserController,UserTypeController};
 use Illuminate\Support\Facades\Route;
 use Modules\Procurement\Http\Controllers\ProcurementController;
 
@@ -16,6 +16,11 @@ Route::middleware('auth')->group(function(){
         Route::resource('permissions',PermissionController::class)->only(['index','store','update','destroy']);
         Route::post('users/bulk-action',[UserController::class,'bulkAction'])->name('users.bulk-action');
         Route::resource('users',UserController::class);
+        Route::post('distributors/bulk-action',[UserController::class,'bulkAction'])->name('distributors.bulk-action');
+        Route::post('distributors/{user}/targets',[UserController::class,'storeDistributorTargets'])->name('distributors.targets.store');
+        Route::resource('distributors',UserController::class)->parameters(['distributors' => 'user']);
+        Route::resource('distributor-types',DistributorTypeController::class)->except('show');
+        Route::resource('distributor-tiers',DistributorTierController::class)->except('show');
         Route::post('users/{user}/profile-image',[UserController::class,'uploadProfileImage'])->name('users.profile-image');
         Route::post('users/{user}/cover-image',[UserController::class,'uploadCoverImage'])->name('users.cover-image');
         Route::post('users/{user}/education/{education}/document',[UserController::class,'uploadEducationDocument'])->name('users.education-document');
@@ -26,7 +31,7 @@ Route::middleware('auth')->group(function(){
         Route::post('organization-structure/{type}', [OrganizationStructureController::class, 'store'])->name('organization-structure.store');
         Route::put('organization-structure/{type}/{id}', [OrganizationStructureController::class, 'update'])->whereNumber('id')->name('organization-structure.update');
         Route::delete('organization-structure/{type}/{id}', [OrganizationStructureController::class, 'destroy'])->whereNumber('id')->name('organization-structure.destroy');
-        Route::get('vendors', [ProcurementController::class, 'vendors'])->name('vendors.index');
+        Route::get('procurement-vendor-data', [ProcurementController::class, 'vendors'])->name('procurement.vendor-data');
         Route::prefix('india-locations')->name('india-locations.')->group(function () {
             Route::get('states',[IndiaLocationController::class,'states'])->name('states');
             Route::get('districts',[IndiaLocationController::class,'districts'])->name('districts');
@@ -48,16 +53,19 @@ Route::middleware('auth')->group(function(){
         Route::prefix('procurement')->name('procurement.')->group(function () {
             Route::get('/', [ProcurementController::class, 'overview'])->name('overview');
             Route::get('material-balance', [ProcurementController::class, 'materialBalance'])->name('material-balance');
+            Route::patch('material-balance/remarks', [ProcurementController::class, 'updateMaterialBalanceRemarks'])->name('material-balance.remarks');
             Route::post('material-balance/import', [ProcurementController::class, 'importMaterialBalance'])->name('material-balance.import');
             Route::get('material-balance/import-preview/{preview}', [ProcurementController::class, 'materialBalanceImportPreview'])->whereUuid('preview')->name('material-balance.import-preview');
             Route::get('material-balance/export/excel', [ProcurementController::class, 'exportMaterialBalanceExcel'])->name('material-balance.export-excel');
             Route::get('material-balance/export/pdf', [ProcurementController::class, 'exportMaterialBalancePdf'])->name('material-balance.export-pdf');
             Route::get('all-materials', [ProcurementController::class, 'materials'])->name('materials');
+            Route::post('all-materials/dump-procurement', [ProcurementController::class, 'dumpProcurementData'])->name('materials.dump-procurement');
+            Route::post('all-materials/truncate-procurement', [ProcurementController::class, 'truncateProcurementData'])->name('materials.truncate-procurement');
             Route::get('all-materials/{material}/edit', [ProcurementController::class, 'editMaterial'])->name('materials.edit');
             Route::put('all-materials/{material}', [ProcurementController::class, 'updateMaterial'])->name('materials.update');
             Route::delete('all-materials/{material}', [ProcurementController::class, 'destroyMaterial'])->name('materials.destroy');
-            Route::get('purchases', [ProcurementController::class, 'purchases'])->name('purchases');
-            Route::get('purchases/create', [ProcurementController::class, 'createPurchase'])->name('purchases.create');
+            Route::redirect('purchases', '/admin/procurement')->name('purchases');
+            Route::redirect('purchases/create', '/admin/procurement')->name('purchases.create');
             Route::post('purchases/sync-vendors', [ProcurementController::class, 'syncPurchaseVendors'])->name('purchases.sync-vendors');
             Route::post('purchases', [ProcurementController::class, 'storePurchase'])->name('purchases.store');
             Route::get('purchases/{purchase}/edit', [ProcurementController::class, 'editPurchase'])->whereNumber('purchase')->name('purchases.edit');

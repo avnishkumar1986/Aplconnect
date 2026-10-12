@@ -1,6 +1,6 @@
 @extends('layout.app')
 
-@section('title', 'Sign In | APL Connect')
+@section('title', 'Sign In')
 
 @push('styles')
     <link rel="stylesheet" href="{{ asset('css/auth-login.css') }}">
@@ -71,13 +71,13 @@
 
 .auth-sso-button:hover {
     border-color: var(--auth-teal);
-    background: rgba(21, 154, 166, .05);
+    background: color-mix(in srgb, var(--auth-teal) 5%, #fff);
     color: var(--auth-teal-dark);
     transform: translateY(-1px);
 }
 
 .auth-sso-button:focus-visible {
-    outline: 3px solid rgba(21, 154, 166, .2);
+    outline: 3px solid color-mix(in srgb, var(--auth-teal) 20%, transparent);
     outline-offset: 2px;
 }
 
@@ -103,23 +103,12 @@
     <main class="auth-page">
         <section class="auth-brand" aria-label="APL Connect">
             <div class="auth-grid" aria-hidden="true"></div>
+            <div class="auth-photo-brand" aria-label="APL Apollo">
+                <img src="{{ asset('images/apl-apollo-logo.webp') }}" alt="">
+                <span><strong>APL</strong><b>APOLLO</b></span>
+            </div>
 
             <div class="auth-brand-content">
-                <a
-                    href="{{ route('login') }}"
-                    class="auth-wordmark"
-                    aria-label="APL Connect sign in"
-                >
-                    <span class="auth-mark" aria-hidden="true">
-                        <img src="{{ asset('images/apl-apollo-logo.webp') }}" alt="">
-                    </span>
-
-                    <span class="auth-wordmark-copy">
-                        <strong>APL <em>Connect</em></strong>
-                        <small class="enterprise-workspace-label">Enterprise workspace</small>
-                    </span>
-                </a>
-
                 <div class="auth-message">
                     <p class="auth-kicker">Secure enterprise access</p>
 

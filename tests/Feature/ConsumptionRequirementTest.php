@@ -127,7 +127,7 @@ SQL);
         $this->assertEquals(25, DB::table('procurement_daily_consumptions')->where('id', $inactive)->value('extra_required_mt'));
     }
 
-    public function test_only_active_purchases_and_imports_in_the_plan_period_reduce_shortage(): void
+    public function test_all_non_cancelled_local_and_api_pos_in_the_planning_month_are_totalled_once(): void
     {
         Schema::create('procurement_purchases', function (Blueprint $t) {
             $t->id(); $t->integer('plant_id'); $t->string('material');
@@ -143,12 +143,18 @@ SQL);
             DB::table('procurement_purchases')->insert(['plant_id' => $plant, 'material' => 'TEST', 'expected_delivery_date' => $date, 'quantity_mt' => $quantity, 'status' => $status]);
         }
         DB::table('procurement_purchases')->insert(['plant_id' => 1, 'material' => 'TEST', 'expected_delivery_date' => '2026-10-15', 'quantity_mt' => 25, 'reference' => 'PO1', 'status' => 1]);
+        DB::table('procurement_purchases')->insert(['plant_id' => 1, 'material' => 'TEST', 'expected_delivery_date' => '2026-10-20', 'quantity_mt' => 7, 'delivery_status' => 'received', 'status' => 1]);
+        DB::table('procurement_purchases')->insert(['plant_id' => 1, 'material' => 'TEST', 'expected_delivery_date' => '2026-10-20', 'quantity_mt' => 500, 'delivery_status' => 'cancelled', 'status' => 1]);
         DB::table('tbl_vendors')->insert(['plant_code' => '1200', 'material_code' => 'TEST', 'delivery_date' => '2026-10-15', 'mt_quantity' => 25, 'purchase_order' => 'PO1', 'status' => 1]);
         DB::table('tbl_vendors')->insert(['plant_code' => '1200', 'material_code' => 'TEST', 'delivery_date' => '2026-10-15', 'mt_quantity' => 900, 'purchase_order' => 'UNSELECTED', 'status' => 1]);
         DB::table('tbl_vendors')->insert(['plant_code' => '1900', 'material_code' => 'TEST', 'delivery_date' => '2026-10-15', 'mt_quantity' => 1000, 'purchase_order' => 'PO1', 'status' => 1]);
-        $result = app(ConsumptionRequirementService::class)->calculate($this->data());
+        $result = app(ConsumptionRequirementService::class)->calculate(array_replace($this->data(), [
+            'period_type' => 'datewise', 'consumption_date' => '2026-10-06', 'effective_to' => '2026-10-10',
+        ]));
         $this->assertEquals(0, $result['extra_required_mt']);
+        $this->assertEquals(47, $result['planned_buying_mt']);
         $this->assertEquals(900, $result['imports_mt']);
+        $this->assertEquals(947, $result['total_buying_mt']);
     }
 
     public function test_zero_days_is_rejected(): void

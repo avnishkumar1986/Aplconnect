@@ -44,4 +44,22 @@ class MaterialBalanceCalculatorTest extends TestCase
         $this->assertSame(0, $result['extra_required']);
         $this->assertNull($result['cover_days']);
     }
+
+    public function test_cover_days_are_limited_to_the_planning_period(): void
+    {
+        $calculator = new MaterialBalanceCalculator;
+
+        $this->assertSame(31.0, $calculator->calculate(307.778, 0, 0, 0.769, 31)['cover_days']);
+        $this->assertSame(10.0, $calculator->calculate(50, 0, 0, 5, 31)['cover_days']);
+        $this->assertSame(0.0, $calculator->calculate(-20, 0, 0, 5, 31)['cover_days']);
+    }
+
+    public function test_balance_sheet_cover_uses_one_day_consumption_rate(): void
+    {
+        $result = (new MaterialBalanceCalculator)->calculate(307.778, 0, 0, 30, 31);
+
+        $this->assertSame(10.3, $result['cover_days']);
+        $this->assertSame(930.0, $result['expected_consumption']);
+        $this->assertSame(-622.222, $result['closing']);
+    }
 }

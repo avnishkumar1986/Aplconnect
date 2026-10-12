@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\SyncApiIntegration;
 use App\Models\ApiIntegration;
 use App\Models\ApiSyncRun;
 use App\Services\ProcurementStockSyncService;
+use App\Services\ApiSyncBackgroundRunner;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
@@ -69,7 +69,7 @@ class ApiIntegrationController extends Controller
         ]);
     }
 
-    public function run(ApiIntegration $apiIntegration)
+    public function run(ApiIntegration $apiIntegration, ApiSyncBackgroundRunner $backgroundRunner)
     {
         Gate::authorize('api-integrations.edit');
         abort_unless($apiIntegration->status, 422, 'Activate this API before running it.');
@@ -80,10 +80,10 @@ class ApiIntegrationController extends Controller
             'This API already has a synchronization in progress.'
         );
         $run = ApiSyncRun::create(['api_integration_id' => $apiIntegration->id, 'run_uuid' => (string) Str::uuid(), 'status' => 'queued', 'started_at' => now(), 'triggered_by' => auth()->id()]);
-        SyncApiIntegration::dispatch($run->id)->onQueue('api-sync');
+        $backgroundRunner->dispatch($run->id);
 
         return redirect()->route('admin.api-integrations.runs', $apiIntegration)
-            ->with('success', 'API synchronization queued. You may continue working while it runs in the background.');
+            ->with('success', 'API synchronization started in the background. You may continue working.');
     }
 
     public function procurementStockSync(ApiIntegration $apiIntegration, ProcurementStockSyncService $stockSync)

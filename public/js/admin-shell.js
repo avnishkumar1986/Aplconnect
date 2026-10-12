@@ -150,10 +150,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const open = p.classList.contains("hidden");
             p.classList.toggle("hidden", !open);
             b.setAttribute("aria-expanded", String(open));
-            b.querySelector("svg:last-child")?.classList.toggle(
-                "rotate-90",
-                open,
-            );
         }),
     );
     document.addEventListener("click", (e) => {
@@ -188,6 +184,8 @@ document.addEventListener("DOMContentLoaded", () => {
         "accounts",
         "users",
         "user-types",
+        "distributor-types",
+        "distributor-tiers",
         "companies",
     ]);
     const enhanceStatusToggles = (scope = document) =>

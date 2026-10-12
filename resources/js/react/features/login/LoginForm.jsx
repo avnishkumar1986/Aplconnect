@@ -12,6 +12,12 @@ export default function LoginForm(p) {
             onSubmit={() => setSaving(true)}
         >
             <input type="hidden" name="_token" value={csrfToken()} />
+            {p.error && (
+                <div className="auth-error" role="alert">
+                    <span className="auth-error-icon">!</span>
+                    <span>{p.error}</span>
+                </div>
+            )}
             <label htmlFor="username">Username</label>
             <div className="auth-input">
                 <input
@@ -25,12 +31,6 @@ export default function LoginForm(p) {
                     autoFocus
                 />
             </div>
-            {p.error && (
-                <div className="auth-error" role="alert">
-                    <span className="auth-error-icon">!</span>
-                    <span>{p.error}</span>
-                </div>
-            )}
             <div className="auth-label-row">
                 <label htmlFor="password">Password</label>
                 <a href="#">Forgot password?</a>

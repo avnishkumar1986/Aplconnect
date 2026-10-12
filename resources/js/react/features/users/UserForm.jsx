@@ -15,6 +15,7 @@ const errorStep = {
     distributor_business_name: 0,
     distributor_legal_business_name: 0,
     distributor_category: 0,
+    distributor_tier_code: 0,
     gst_number: 1,
     pan_number: 1,
     first_name: 0,
@@ -81,6 +82,14 @@ function Text({
     disabled = false,
     placeholder = "",
     autoComplete,
+    pattern,
+    min,
+    max,
+    step,
+    minLength,
+    maxLength,
+    inputMode,
+    title,
 }) {
     return (
         <div className="form-field">
@@ -97,12 +106,22 @@ function Text({
                     placeholder={placeholder || " "}
                     aria-label={label}
                     autoComplete={autoComplete}
+                    pattern={pattern}
+                    min={min}
+                    max={max}
+                    step={step}
+                    minLength={minLength}
+                    maxLength={maxLength}
+                    inputMode={inputMode}
+                    title={title}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? `${name}-error` : undefined}
                 />
                 <label className="floating-label" htmlFor={name}>
                     {label}{required && <span> *</span>}
                 </label>
             </div>
-            <ErrorMessage message={error} />
+            <div id={`${name}-error`}><ErrorMessage message={error} /></div>
         </div>
     );
 }
@@ -114,6 +133,7 @@ function Select({
     error,
     options = [],
     required = false,
+    disabled = false,
 }) {
     return (
         <div className="form-field">
@@ -125,7 +145,10 @@ function Select({
                     value={value ?? ""}
                     onChange={change(name)}
                     required={required}
+                    disabled={disabled}
                     aria-label={label}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? `${name}-error` : undefined}
                 >
                     <option value="">Select</option>
                     {options
@@ -140,7 +163,7 @@ function Select({
                     {label}{required && <span> *</span>}
                 </label>
             </div>
-            <ErrorMessage message={error} />
+            <div id={`${name}-error`}><ErrorMessage message={error} /></div>
         </div>
     );
 }
@@ -199,7 +222,7 @@ function CheckboxTable({ label, name, value, change, options = [], error, itemLa
     const selectVisible = () => change([...new Set([...selected, ...visibleOptions.map(option => String(option.value))])]);
 
     return (
-        <div className="form-field form-field-wide">
+        <div className="form-field form-field-wide checkbox-table-field">
             {selected.map(item => <input key={`${name}-selected-${item}`} type="hidden" name={`${name}[]`} value={item} />)}
             <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                 <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -236,7 +259,7 @@ function CheckboxTable({ label, name, value, change, options = [], error, itemLa
     );
 }
 
-function AddressCoordinates({ index, row, changeAddress, latitudeError, longitudeError }) {
+function AddressCoordinates({ index, row, changeAddress, latitudeError, longitudeError, prefix = "addresses", required = true }) {
     const [geocoding, setGeocoding] = useState(false);
     const [geocodingMessage, setGeocodingMessage] = useState("");
     const latitude = Number(row.latitude);
@@ -303,8 +326,8 @@ function AddressCoordinates({ index, row, changeAddress, latitudeError, longitud
             {!canGeocode && <p className="mb-3 text-xs text-amber-700">Fill Address Line 1, State, City and Postal Code to get the map location.</p>}
             {geocodingMessage && !hasCoordinates && <p className="mb-3 text-xs text-red-600">{geocodingMessage}</p>}
             <div className="corporate-form-grid address-coordinate-grid">
-                <Text label="Latitude" name={`addresses[${index}][latitude]`} type="number" value={row.latitude} change={() => event => changeAddress(index, "latitude", event.target.value)} error={latitudeError} required />
-                <Text label="Longitude" name={`addresses[${index}][longitude]`} type="number" value={row.longitude} change={() => event => changeAddress(index, "longitude", event.target.value)} error={longitudeError} required />
+                <Text label="Latitude" name={`${prefix}[${index}][latitude]`} type="number" value={row.latitude} change={() => event => changeAddress(index, "latitude", event.target.value)} error={latitudeError} required={required} />
+                <Text label="Longitude" name={`${prefix}[${index}][longitude]`} type="number" value={row.longitude} change={() => event => changeAddress(index, "longitude", event.target.value)} error={longitudeError} required={required} />
                 <div className="form-field">
                     <button type="button" className="btn-primary w-full" onClick={getMapLocation} disabled={!canGeocode || geocoding}>
                         {geocoding ? "Getting location…" : "Get map location"}
@@ -326,27 +349,43 @@ function AddressMapPreview({ index, row }) {
     const mapUrl = hasCoordinates
         ? `https://www.openstreetmap.org/export/embed.html?bbox=${longitude - 0.01}%2C${latitude - 0.01}%2C${longitude + 0.01}%2C${latitude + 0.01}&layer=mapnik&marker=${latitude}%2C${longitude}`
         : "";
+    const shareOnWhatsApp = () => {
+        if (!hasCoordinates) return;
+        const address = [row.line_1, row.line_2, row.city, row.district, row.state, row.postal_code, row.country]
+            .filter(Boolean)
+            .join(", ");
+        const googleMapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+        const message = ["Location", address, googleMapsUrl].filter(Boolean).join("\n");
+        window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+    };
 
-    return hasCoordinates ? (
-        <iframe
-            className="h-full min-h-96 w-full rounded-xl border border-slate-200 bg-white shadow-sm"
-            src={mapUrl}
-            title={`Address location ${index + 1}`}
-            loading="lazy"
-        />
-    ) : (
-        <div className="address-map-empty">
-            <span>⌖</span>
-            <strong>Map preview</strong>
-            <p>Enter the address and select Get map location.</p>
+    return (
+        <div className="address-map-share-panel">
+            {hasCoordinates ? (
+                <iframe
+                    className="min-h-96 w-full rounded-xl border border-slate-200 bg-white shadow-sm"
+                    src={mapUrl}
+                    title={`Address location ${index + 1}`}
+                    loading="lazy"
+                />
+            ) : (
+                <div className="address-map-empty">
+                    <span>⌖</span>
+                    <strong>Map preview</strong>
+                    <p>Enter the address and select Get map location.</p>
+                </div>
+            )}
+            <button type="button" className="whatsapp-map-share" onClick={shareOnWhatsApp} disabled={!hasCoordinates}>
+                <span aria-hidden="true">●</span> Share location on WhatsApp
+            </button>
         </div>
     );
 }
 
 const contactTypeLabels = { "1": "Mobile", "2": "Telephone", "3": "Email", "4": "Emergency contact" };
-const addressTypeLabels = { "1": "Current", "2": "Permanent", "3": "Office", "4": "Plant", "5": "Subsidiary" };
+const addressTypeLabels = { "1": "Local", "2": "Permanent", "3": "Official", "4": "Plant", "5": "Subsidiary" };
 const addressLabel = row => String(row.type) === "1" && Boolean(row.is_current_permanent_same)
-    ? "Current & Permanent"
+    ? "Local & Permanent"
     : (addressTypeLabels[String(row.type)] ?? "Address");
 
 function RecordsTable({ columns, rows, emptyMessage, onEdit, onRemove }) {
@@ -361,6 +400,8 @@ function RecordsTable({ columns, rows, emptyMessage, onEdit, onRemove }) {
 }
 
 export default function UserForm({
+    distributorMode = false,
+    lockUserType = false,
     title,
     description,
     action,
@@ -371,22 +412,31 @@ export default function UserForm({
     errors = {},
     initialContacts = [],
     initialAddresses = [],
+    initialSubsidiaries = [],
     initialAdditionalEducations = [],
     roleOptions = [],
     supplierOptions = [],
     materialGroupOptions = [],
+    distributorTypeOptions = [],
+    distributorTierOptions = [],
     supplierDocuments = {},
     distributorCancelledChequeUrl = null,
 }) {
+    const initialUserType = fields
+        .find(field => field.name === "type_code")
+        ?.options?.find(option => String(option.value) === String(values.type_code));
+    const initialIsDistributor = /distributor/i.test(initialUserType?.label ?? "");
     const failedStep = Object.keys(errors).length
         ? Math.min(
               ...Object.keys(errors).map((name) =>
-                name.startsWith("contacts.")
+                name.startsWith("subsidiaries.")
+                      ? 2
+                      : name.startsWith("contacts.")
                       ? 2
                       : /^addresses\.\d+\.(latitude|longitude)$/.test(name)
-                        ? 3
+                        ? (initialIsDistributor ? 2 : 3)
                         : name.startsWith("addresses.")
-                          ? 3
+                          ? (initialIsDistributor ? 2 : 3)
                         : name.startsWith("additional_education.")
                           ? 4
                         : (errorStep[name] ?? 5),
@@ -399,6 +449,11 @@ export default function UserForm({
     const [form, setForm] = useState({
         new_education_is_current: "0",
         ...values,
+        distributor_material_groups: initialIsDistributor
+            && method === "POST"
+            && (!Array.isArray(values.distributor_material_groups) || values.distributor_material_groups.length === 0)
+                ? materialGroupOptions.map(option => String(option.value))
+                : (values.distributor_material_groups ?? []),
     });
     const [contacts, setContacts] = useState(
         initialContacts.length
@@ -422,6 +477,9 @@ export default function UserForm({
             longitude: "",
         }],
     );
+    const [subsidiaries, setSubsidiaries] = useState(initialSubsidiaries);
+    const [activeSubsidiaryIndex, setActiveSubsidiaryIndex] = useState(0);
+    const [activeDistributorAddress, setActiveDistributorAddress] = useState("main");
     const failedAddressIndex = Object.keys(errors)
         .map((name) => name.match(/^addresses\.(\d+)\./)?.[1])
         .find((index) => index !== undefined);
@@ -494,6 +552,20 @@ export default function UserForm({
         if (!nextType) return;
         setContacts(rows => [...rows, { type: nextType, value: "", is_primary: false }]);
     };
+    const changeDistributorContact = (kind, value) => {
+        const isMatch = row => kind === "phone"
+            ? ["1", "2"].includes(String(row.type))
+            : String(row.type) === "3";
+        setContacts(rows => {
+            const existingIndex = rows.findIndex(isMatch);
+            if (existingIndex === -1) {
+                return [...rows, { type: kind === "phone" ? "1" : "3", value, is_primary: true }];
+            }
+            return rows.map((row, index) => index === existingIndex
+                ? { ...row, value, is_primary: true }
+                : row);
+        });
+    };
     const changeAddress = (index, key, value) =>
         setAddresses((rows) =>
             rows.map((row, i) =>
@@ -544,6 +616,23 @@ export default function UserForm({
         setAddresses((rows) => rows.filter((_, rowIndex) => rowIndex !== index));
         setActiveAddressIndex((current) => Math.max(0, current > index ? current - 1 : Math.min(current, addresses.length - 2)));
     };
+    const addSubsidiary = () => setSubsidiaries(rows => {
+        setActiveSubsidiaryIndex(rows.length);
+        setActiveDistributorAddress(`subsidiary-${rows.length}`);
+        return [...rows, {
+            name: "", phone: "", email: "", line_1: "", line_2: "",
+            city: "", district: "", state: "", postal_code: "", country: "India",
+            latitude: "", longitude: "",
+        }];
+    });
+    const removeSubsidiary = index => {
+        setSubsidiaries(rows => rows.filter((_, rowIndex) => rowIndex !== index));
+        setActiveSubsidiaryIndex(current => Math.max(0, current > index ? current - 1 : Math.min(current, subsidiaries.length - 2)));
+        setActiveDistributorAddress("main");
+    };
+    const changeSubsidiary = (index, key, value) => setSubsidiaries(rows =>
+        rows.map((row, rowIndex) => rowIndex === index ? { ...row, [key]: value } : row),
+    );
     const err = (name) => (errors[name] ?? [])[0];
     const label = (name) =>
         options[name]?.find((x) => String(x.value) === String(form[name]))
@@ -553,20 +642,29 @@ export default function UserForm({
     );
     const isDistributorType = /distributor/i.test(selectedUserType?.label ?? "");
     const isEmployeeType = /employee/i.test(selectedUserType?.label ?? "");
+    const distributorPhone = contacts.find(row => ["1", "2"].includes(String(row.type))) ?? { type: "1", value: "", is_primary: true };
+    const distributorEmail = contacts.find(row => String(row.type) === "3") ?? { type: "3", value: "", is_primary: true };
     const maxAddresses = isEmployeeType ? 2 : 1;
     const maxPhoneContacts = isEmployeeType ? 2 : 1;
     const maxEmailContacts = 1;
     const userCodeLabel = `${selectedUserType?.label ?? "User"} ID`;
-    const changeUserType = (event) =>
+    const changeUserType = (event) => {
+        const nextType = event.target.value;
+        const nextTypeLabel = options.type_code?.find(option => String(option.value) === String(nextType))?.label ?? "";
         setForm((current) => ({
             ...current,
-            type_code: event.target.value,
-            code: current.type_code === event.target.value ? current.code : "",
+            type_code: nextType,
+            code: current.type_code === nextType ? current.code : "",
+            ...(/distributor/i.test(nextTypeLabel)
+                && (!Array.isArray(current.distributor_material_groups) || current.distributor_material_groups.length === 0)
+                ? { distributor_material_groups: materialGroupOptions.map(option => String(option.value)) }
+                : {}),
         }));
+    };
     const wizardSteps = isDistributorType
-        ? ["Distributor", "Documents", "Contact", "Address & Map", "Commercial & Banking", "Login"]
+        ? ["Distributor", "Documents", "Contact & Address", "Commercial & Banking", "Login"]
         : ["Personal & Employment", "Contact", "Address & Map", "Education", "Login"];
-    const wizardStepIndexes = isDistributorType ? [0, 1, 2, 3, 6, 5] : [0, 2, 3, 4, 5];
+    const wizardStepIndexes = isDistributorType ? [0, 1, 2, 6, 5] : [0, 2, 3, 4, 5];
     const visibleStep = Math.max(0, wizardStepIndexes.indexOf(step));
     const csrf =
         document.querySelector('meta[name="csrf-token"]')?.content ?? "";
@@ -580,10 +678,10 @@ export default function UserForm({
         else window.location.href = cancelUrl;
     };
     const next = () => {
-        const panel = formRef.current?.querySelector(`[data-step="${step}"]`);
+        const panels = formRef.current?.querySelectorAll(`[data-step="${step}"]`) ?? [];
         const invalid = [
-            ...(panel?.querySelectorAll("input,select,textarea") ?? []),
-        ].find((input) => !input.checkValidity());
+            ...[...panels].flatMap(panel => [...panel.querySelectorAll("input,select,textarea")]),
+        ].find((input) => !input.disabled && input.type !== "hidden" && input.offsetParent !== null && !input.checkValidity());
         if (invalid) {
             invalid.reportValidity();
             return;
@@ -622,6 +720,8 @@ export default function UserForm({
             </div>
             <form
                 ref={formRef}
+                className={isDistributorType && step === 2 ? "flex flex-col" : ""}
+                style={isDistributorType && step === 2 ? { display: "flex", flexDirection: "column" } : undefined}
                 method="POST"
                 action={action}
                 encType="multipart/form-data"
@@ -647,8 +747,13 @@ export default function UserForm({
                     <div className="form-error-alert">
                         <span className="form-error-alert-icon">!</span>
                         <div>
-                            <strong>Unable to save user</strong>
-                            <p>Correct the highlighted fields.</p>
+                            <strong>Unable to save {distributorMode ? "distributor" : "employee"}</strong>
+                            <p>Please correct the following fields and submit again:</p>
+                            <ul className="form-error-summary-list">
+                                {[...new Set(Object.values(errors).flat())].map((message, index) => (
+                                    <li key={`${index}-${message}`}>{message}</li>
+                                ))}
+                            </ul>
                         </div>
                     </div>
                 )}
@@ -661,14 +766,16 @@ export default function UserForm({
                         </div>
                         <div className="corporate-form-grid classification-grid">
                             <Select
-                                label="User type"
+                                label={distributorMode ? "Distributor type" : "Employee type"}
                                 name="type_code"
                                 value={form.type_code}
                                 change={() => changeUserType}
                                 error={err("type_code")}
                                 options={options.type_code}
+                                disabled={lockUserType}
                                 required
                             />
+                            {lockUserType && <input type="hidden" name="type_code" value={form.type_code} />}
                             <Text
                                 label={userCodeLabel}
                                 name="code"
@@ -703,18 +810,21 @@ export default function UserForm({
                                 required
                             />
                             <Select
-                                label="Distributor category"
+                                label="Distributor type"
                                 name="distributor_category"
                                 value={form.distributor_category}
                                 change={change}
                                 error={err("distributor_category")}
-                                options={[
-                                    { value: "regional", label: "Regional distributor" },
-                                    { value: "exclusive", label: "Exclusive distributor" },
-                                    { value: "stockist", label: "Stockist" },
-                                    { value: "national", label: "National distributor" },
-                                    { value: "other", label: "Other" },
-                                ]}
+                                options={distributorTypeOptions}
+                                required
+                            />
+                            <Select
+                                label="Distributor tier"
+                                name="distributor_tier_code"
+                                value={form.distributor_tier_code}
+                                change={change}
+                                error={err("distributor_tier_code")}
+                                options={distributorTierOptions}
                                 required
                             />
                             <Select
@@ -724,8 +834,10 @@ export default function UserForm({
                                 change={change}
                                 error={err("role_id")}
                                 options={roleOptions}
+                                disabled={distributorMode}
                                 required
                             />
+                            {distributorMode && <input type="hidden" name="role_id" value={form.role_id} />}
                             <Text
                                 label="First name"
                                 name="first_name"
@@ -814,45 +926,68 @@ export default function UserForm({
                             <p className="mb-4 text-sm text-slate-500">
                                 Upload GST registration and PAN card documents. PDF, JPG, PNG or WebP up to 10 MB.
                             </p>
-                            <div className="corporate-form-grid distributor-document-grid">
-                                <div className="form-field">
-                                    <label className="label" htmlFor="supplier_gst_document">GST document</label>
-                                    <input className="input" id="supplier_gst_document" name="supplier_gst_document" type="file" accept=".pdf,image/jpeg,image/png,image/webp" />
-                                    <ErrorMessage message={err("supplier_gst_document")} />
-                                </div>
-                                <Text label="GSTIN" name="gst_number" value={form.gst_number} change={change} error={err("gst_number")} required />
-                                <div className="form-field distributor-document-preview">
-                                    <label className="label">GST document preview</label>
-                                    <div className="document-preview-box" data-document-preview="gst">
-                                        {supplierDocuments.gst
-                                            ? <a href={supplierDocuments.gst} target="_blank" rel="noreferrer">Open saved GST document</a>
-                                            : <span>No document selected</span>}
+                            <div className="distributor-document-grid">
+                                <article className="distributor-document-card">
+                                    <header><span>GST</span><div><h4>GST registration</h4><p>Upload a clear registration certificate for automatic GSTIN extraction.</p></div></header>
+                                    <div className="distributor-document-fields">
+                                        <div className="form-field document-upload-field">
+                                            <label className="label" htmlFor="supplier_gst_document">GST document</label>
+                                            <input className="input" id="supplier_gst_document" name="supplier_gst_document" type="file" accept=".pdf,image/jpeg,image/png,image/webp" />
+                                            <ErrorMessage message={err("supplier_gst_document")} />
+                                        </div>
+                                        <Text label="GSTIN" name="gst_number" value={form.gst_number} change={change} error={err("gst_number")} required pattern="[0-9]{2}[A-Za-z]{5}[0-9]{4}[A-Za-z][1-9A-Za-z]Z[0-9A-Za-z]" minLength={15} maxLength={15} title="Enter a valid 15-character GSTIN, for example 09ABCDE1234F1Z5." />
                                     </div>
-                                </div>
-                                <div className="form-field">
-                                    <label className="label" htmlFor="supplier_pan_document">PAN card</label>
-                                    <input className="input" id="supplier_pan_document" name="supplier_pan_document" type="file" accept=".pdf,image/jpeg,image/png,image/webp" />
-                                    <ErrorMessage message={err("supplier_pan_document")} />
-                                </div>
-                                <Text label="PAN number" name="pan_number" value={form.pan_number} change={change} error={err("pan_number")} required />
-                                <div className="form-field distributor-document-preview">
-                                    <label className="label">PAN document preview</label>
-                                    <div className="document-preview-box" data-document-preview="pan">
-                                        {supplierDocuments.pan
-                                            ? <a href={supplierDocuments.pan} target="_blank" rel="noreferrer">Open saved PAN document</a>
-                                            : <span>No document selected</span>}
+                                    <div className="distributor-document-preview">
+                                        <div className="document-preview-heading"><span>Document preview</span><small>Click an image to zoom</small></div>
+                                        <div className="document-preview-box" data-document-preview="gst">
+                                            {supplierDocuments.gst
+                                                ? (/\.(jpe?g|png|webp)(\?|$)/i.test(supplierDocuments.gst)
+                                                    ? <img src={supplierDocuments.gst} alt="Saved GST document" />
+                                                    : <a href={supplierDocuments.gst} target="_blank" rel="noreferrer">Open saved GST document</a>)
+                                                : <span className="document-preview-empty">No GST document selected</span>}
+                                        </div>
                                     </div>
-                                </div>
+                                </article>
+                                <article className="distributor-document-card">
+                                    <header><span>PAN</span><div><h4>PAN card</h4><p>Upload a clear PAN card image for automatic number extraction.</p></div></header>
+                                    <div className="distributor-document-fields">
+                                        <div className="form-field document-upload-field">
+                                            <label className="label" htmlFor="supplier_pan_document">PAN document</label>
+                                            <input className="input" id="supplier_pan_document" name="supplier_pan_document" type="file" accept=".pdf,image/jpeg,image/png,image/webp" />
+                                            <ErrorMessage message={err("supplier_pan_document")} />
+                                        </div>
+                                        <Text label="PAN number" name="pan_number" value={form.pan_number} change={change} error={err("pan_number")} required pattern="[A-Za-z]{5}[0-9]{4}[A-Za-z]" minLength={10} maxLength={10} title="Enter a valid PAN, for example ABCDE1234F." />
+                                    </div>
+                                    <div className="distributor-document-preview">
+                                        <div className="document-preview-heading"><span>Document preview</span><small>Click an image to zoom</small></div>
+                                        <div className="document-preview-box" data-document-preview="pan">
+                                            {supplierDocuments.pan
+                                                ? (/\.(jpe?g|png|webp)(\?|$)/i.test(supplierDocuments.pan)
+                                                    ? <img src={supplierDocuments.pan} alt="Saved PAN document" />
+                                                    : <a href={supplierDocuments.pan} target="_blank" rel="noreferrer">Open saved PAN document</a>)
+                                                : <span className="document-preview-empty">No PAN document selected</span>}
+                                        </div>
+                                    </div>
+                                </article>
                             </div>
                         </>
                     )}
                 </section>
 
-                <section data-step="2" className={step === 2 ? "" : "hidden"}>
-                    <h3 className="font-semibold">Contact details</h3>
-                    <p className="mb-4 text-sm text-slate-500">
-                        Add one or more employee contact details.
-                    </p>
+                <section
+                    data-step="2"
+                    style={isDistributorType ? { order: 2 } : undefined}
+                    className={step === 2
+                        ? (isDistributorType
+                            ? (activeDistributorAddress.startsWith("subsidiary-") ? "mt-3" : "hidden")
+                            : "")
+                        : "hidden"}
+                >
+                    {!isDistributorType && <>
+                        <h3 className="font-semibold">Contact details</h3>
+                        <p className="mb-4 text-sm text-slate-500">Add one or more employee contact details.</p>
+                    </>}
+                    {!isDistributorType && <>
                     <RecordsTable
                         columns={[
                             { key: "type", label: "Type", render: row => contactTypeLabels[row.type] },
@@ -957,9 +1092,81 @@ export default function UserForm({
                                 ＋ Add another contact
                             </button>
                         </div>
+                    </>}
+                    {isDistributorType && <div>
+                        <div className="hidden">
+                            <div>
+                                <h4 className="font-semibold text-slate-800">Subsidiaries</h4>
+                                <p className="text-sm text-slate-500">Add each subsidiary's contact and address details in one form.</p>
+                            </div>
+                            <button type="button" className="btn-primary" onClick={addSubsidiary}>＋ Add more subsidiary</button>
+                        </div>
+                        {subsidiaries.length === 0 ? (
+                            <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-500">No subsidiaries added.</p>
+                        ) : (
+                            <div className="space-y-4">
+                                <div className="hidden" role="tablist" aria-label="Subsidiaries">
+                                    {subsidiaries.map((row, index) => <button
+                                        key={`subsidiary-tab-${row.id ?? index}`}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={activeSubsidiaryIndex === index}
+                                        className={`address-tab ${activeSubsidiaryIndex === index ? "is-active" : ""}`}
+                                        onClick={() => setActiveSubsidiaryIndex(index)}
+                                    >
+                                        <span className="block text-xs font-semibold uppercase tracking-wide">Subsidiary {index + 1}</span>
+                                        <span className="mt-1 block max-w-44 truncate text-xs text-slate-500">{row.name || "Not completed"}</span>
+                                    </button>)}
+                                </div>
+                                {subsidiaries.map((row, index) => <div className={`${activeDistributorAddress === `subsidiary-${index}` ? "block" : "hidden"} distributor-address-card distributor-subsidiary-card rounded-xl border border-slate-200 bg-white`} key={`subsidiary-${row.id ?? index}`}>
+                                    <input type="hidden" name={`subsidiaries[${index}][id]`} value={row.id ?? ""} />
+                                    <div className="subsidiary-card-heading flex items-center justify-between">
+                                        <strong className="text-sm text-slate-800">Subsidiary {index + 1}</strong>
+                                        <button type="button" className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50" onClick={() => removeSubsidiary(index)}>Remove</button>
+                                    </div>
+                                    <div className="address-details-split">
+                                        <div className="address-form-block">
+                                            <div className="corporate-form-grid repeatable-form-grid">
+                                                <Text label="Subsidiary name" name={`subsidiaries[${index}][name]`} value={row.name} change={() => event => changeSubsidiary(index, "name", event.target.value)} error={err(`subsidiaries.${index}.name`)} />
+                                                <Text label="Phone number" name={`subsidiaries[${index}][phone]`} type="tel" value={row.phone} change={() => event => changeSubsidiary(index, "phone", event.target.value)} error={err(`subsidiaries.${index}.phone`)} />
+                                                <Text label="Email" name={`subsidiaries[${index}][email]`} type="email" value={row.email} change={() => event => changeSubsidiary(index, "email", event.target.value)} error={err(`subsidiaries.${index}.email`)} />
+                                                <Text label="Address line 1" name={`subsidiaries[${index}][line_1]`} value={row.line_1} change={() => event => changeSubsidiary(index, "line_1", event.target.value)} error={err(`subsidiaries.${index}.line_1`)} />
+                                                <Text label="Address line 2" name={`subsidiaries[${index}][line_2]`} value={row.line_2} change={() => event => changeSubsidiary(index, "line_2", event.target.value)} error={err(`subsidiaries.${index}.line_2`)} />
+                                                <IndiaLocationFields
+                                                    prefix={`subsidiaries[${index}]`}
+                                                    value={row}
+                                                    onChange={next => setSubsidiaries(rows => rows.map((item, rowIndex) => rowIndex === index ? next : item))}
+                                                    errors={{
+                                                        state: err(`subsidiaries.${index}.state`),
+                                                        district: err(`subsidiaries.${index}.district`),
+                                                        city: err(`subsidiaries.${index}.city`),
+                                                        postal_code: err(`subsidiaries.${index}.postal_code`),
+                                                    }}
+                                                    required={false}
+                                                />
+                                            </div>
+                                            <AddressCoordinates
+                                                index={index}
+                                                row={row}
+                                                changeAddress={changeSubsidiary}
+                                                prefix="subsidiaries"
+                                                latitudeError={err(`subsidiaries.${index}.latitude`)}
+                                                longitudeError={err(`subsidiaries.${index}.longitude`)}
+                                                required={false}
+                                            />
+                                        </div>
+                                        <div className="address-map-panel">
+                                            <AddressMapPreview index={index} row={row} />
+                                        </div>
+                                    </div>
+                                </div>)}
+                            </div>
+                        )}
+                    </div>}
                 </section>
 
-                <section data-step="3" className={step === 3 ? "" : "hidden"}>
+                <section data-step={isDistributorType ? "2" : "3"} style={isDistributorType ? { order: 1 } : undefined} className={step === (isDistributorType ? 2 : 3) ? (isDistributorType ? "" : "mt-6 border-t border-slate-200 pt-5") : "hidden"}>
+                    {!isDistributorType && <>
                     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                         <div>
                             <h3 className="font-semibold">Address details</h3>
@@ -988,56 +1195,107 @@ export default function UserForm({
                             );
                         })}
                     </div>
+                    </>}
+                    {isDistributorType && <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <div className="address-tab-list flex-1" role="tablist" aria-label="Distributor addresses">
+                            <button
+                                type="button"
+                                role="tab"
+                                aria-selected={activeDistributorAddress === "main"}
+                                className={`address-tab ${activeDistributorAddress === "main" ? "is-active" : ""}`}
+                                onClick={() => setActiveDistributorAddress("main")}
+                            >
+                                <span className="block text-xs font-semibold uppercase tracking-wide">Distributor</span>
+                                <span className="mt-1 block max-w-44 truncate text-xs text-slate-500">Primary address</span>
+                            </button>
+                            {subsidiaries.map((row, index) => <button
+                                key={`unified-subsidiary-tab-${row.id ?? index}`}
+                                type="button"
+                                role="tab"
+                                aria-selected={activeDistributorAddress === `subsidiary-${index}`}
+                                className={`address-tab ${activeDistributorAddress === `subsidiary-${index}` ? "is-active" : ""}`}
+                                onClick={() => {
+                                    setActiveSubsidiaryIndex(index);
+                                    setActiveDistributorAddress(`subsidiary-${index}`);
+                                }}
+                            >
+                                <span className="block text-xs font-semibold uppercase tracking-wide">Subsidiary {index + 1}</span>
+                                <span className="mt-1 block max-w-44 truncate text-xs text-slate-500">{row.name || "Not completed"}</span>
+                            </button>)}
+                        </div>
+                        <button type="button" className="btn-primary" onClick={addSubsidiary}>＋ Add subsidiary</button>
+                    </div>}
                     <input type="hidden" name="address_id" value={form.address_id ?? ""} />
                         <div className="mt-4 space-y-4">
                             {addresses.map((row, index) => (
                                 <div
-                                    className={`${index === activeAddressIndex ? "block" : "hidden"} rounded-xl border border-slate-200 bg-white p-5 shadow-sm`}
+                                    className={`${index === activeAddressIndex && (!isDistributorType || activeDistributorAddress === "main") ? "block" : "hidden"} ${isDistributorType ? "distributor-address-card" : ""} rounded-xl border border-slate-200 bg-white p-5 shadow-sm`}
                                     key={index}
                                     id={`address-record-${index}`}
                                     role="tabpanel"
                                 >
-                                    <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
+                                    {!isDistributorType && <div className="mb-4 flex items-center justify-between border-b border-slate-100 pb-3">
                                         <div><span className="text-xs font-semibold uppercase tracking-wide text-cyan-700">Address {index + 1}</span><h4 className="font-semibold text-slate-800">{addressLabel(row)} address</h4></div>
                                         {addresses.length > 1 && <button type="button" className="rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50" onClick={() => removeAddress(index)}>Remove address</button>}
-                                    </div>
+                                    </div>}
                                     <input type="hidden" name={`addresses[${index}][id]`} value={row.id ?? ""} />
                                     <div className="address-details-split">
                                     <div className="address-form-block">
-                                        <h5 className="address-form-block-title">Address information</h5>
+                                        {!isDistributorType && <h5 className="address-form-block-title">Address information</h5>}
                                         <div className="corporate-form-grid repeatable-form-grid">
                                         <div className="form-field">
-                                            <label className="label">
-                                                Address type
-                                            </label>
+                                            <label className="label">Address type</label>
                                             <select
                                                 className="input"
                                                 name={`addresses[${index}][type]`}
                                                 value={row.type}
-                                                onChange={(e) =>
-                                                    changeAddress(
-                                                        index,
-                                                        "type",
-                                                        e.target.value,
-                                                    )
-                                                }
+                                                onChange={(e) => changeAddress(index, "type", e.target.value)}
                                             >
-                                                <option value="1">
-                                                    Current
-                                                </option>
-                                                <option value="2" disabled={String(row.type) !== "2" && addresses.some(item => String(item.type) === "1" && item.is_current_permanent_same)}>
-                                                    Permanent
-                                                </option>
-                                                <option value="3">
-                                                    Office
-                                                </option>
-                                                <option value="4">Plant</option>
-                                                <option value="5">
-                                                    Subsidiary
-                                                </option>
+                                                {isDistributorType ? <>
+                                                    <option value="1">Local</option>
+                                                    <option value="2">Permanent</option>
+                                                    <option value="3">Official</option>
+                                                    <option value="5">Subsidiary</option>
+                                                </> : <>
+                                                    <option value="1">Local</option>
+                                                    <option value="2" disabled={String(row.type) !== "2" && addresses.some(item => String(item.type) === "1" && item.is_current_permanent_same)}>Permanent</option>
+                                                </>}
                                             </select>
                                         </div>
-                                        {String(row.type) === "1" && (
+                                        {isDistributorType && index === 0 && <>
+                                            <input type="hidden" name="contact_id" value={form.contact_id ?? ""} />
+                                            <input type="hidden" name="contacts[0][id]" value={distributorPhone.id ?? ""} />
+                                            <input type="hidden" name="contacts[0][type]" value={distributorPhone.type ?? "1"} />
+                                            <input type="hidden" name="contacts[0][is_primary]" value="1" />
+                                            <Text
+                                                label="Primary phone number"
+                                                name="contacts[0][value]"
+                                                type="tel"
+                                                value={distributorPhone.value ?? ""}
+                                                change={() => event => changeDistributorContact("phone", event.target.value)}
+                                                error={err("contacts.0.value")}
+                                                required
+                                                pattern="[+]?[0-9 ()-]{7,20}"
+                                                maxLength={20}
+                                                inputMode="tel"
+                                                title="Enter a valid phone number using 7 to 20 digits."
+                                            />
+                                            <input type="hidden" name="contacts[1][id]" value={distributorEmail.id ?? ""} />
+                                            <input type="hidden" name="contacts[1][type]" value="3" />
+                                            <input type="hidden" name="contacts[1][is_primary]" value="1" />
+                                            <Text
+                                                label="Primary email address"
+                                                name="contacts[1][value]"
+                                                type="email"
+                                                value={distributorEmail.value ?? ""}
+                                                change={() => event => changeDistributorContact("email", event.target.value)}
+                                                error={err("contacts.1.value")}
+                                                required
+                                                maxLength={255}
+                                                autoComplete="email"
+                                            />
+                                        </>}
+                                        {!isDistributorType && String(row.type) === "1" && (
                                             <div className="form-field flex items-center">
                                                 <input type="hidden" name={`addresses[${index}][is_current_permanent_same]`} value="0" />
                                                 <label className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-sm font-semibold text-slate-700">
@@ -1049,7 +1307,7 @@ export default function UserForm({
                                                         onChange={event => setCurrentPermanentSame(index, event.target.checked)}
                                                         className="h-5 w-5 rounded border-slate-300 text-cyan-600"
                                                     />
-                                                    Current and permanent address are the same
+                                                    Local and permanent address are the same
                                                 </label>
                                             </div>
                                         )}
@@ -1275,34 +1533,31 @@ export default function UserForm({
                     <button className="education-add-more" type="button" onClick={addEducation}>＋ Add more education</button>
                 </section>
 
-                {isDistributorType && <section data-step="6" className={step === 6 ? "" : "hidden"}>
+                {isDistributorType && <section data-step="6" className={`${step === 6 ? "" : "hidden"} distributor-commercial-section`}>
                     <h3 className="font-semibold">Commercial &amp; banking details</h3>
                     <p className="mb-4 text-sm text-slate-500">Configure coverage, commercial terms and settlement account details.</p>
-                    <div className="mb-4 rounded-lg bg-slate-50 px-4 py-3"><h4 className="text-sm font-semibold text-slate-800">Commercial details</h4></div>
-                    <div className="corporate-form-grid">
-                        <Select label="Company association" name="distributor_company_association" value={form.distributor_company_association} change={change} error={err("distributor_company_association")} options={options.company_id} required />
-                        <CheckboxTable label="Applicable plants" itemLabel="Plant" name="distributor_applicable_plants" value={form.distributor_applicable_plants} change={value => setForm(current => ({ ...current, distributor_applicable_plants: value }))} error={err("distributor_applicable_plants")} options={options.sitting_location_id} />
-                        <CheckboxTable label="Product / material groups" itemLabel="Material group" name="distributor_material_groups" value={form.distributor_material_groups} change={value => setForm(current => ({ ...current, distributor_material_groups: value }))} error={err("distributor_material_groups")} options={materialGroupOptions} />
-                        <Text label="Credit limit" name="distributor_credit_limit" type="number" value={form.distributor_credit_limit} change={change} error={err("distributor_credit_limit")} />
-                        <Text label="Credit period (days)" name="distributor_credit_period_days" type="number" value={form.distributor_credit_period_days} change={change} error={err("distributor_credit_period_days")} />
+                    <div className="corporate-form-grid commercial-terms-grid">
+                        <Text label="Credit limit" name="distributor_credit_limit" type="number" value={form.distributor_credit_limit} change={change} error={err("distributor_credit_limit")} min="0" />
+                        <Text label="Credit period (days)" name="distributor_credit_period_days" type="number" value={form.distributor_credit_period_days} change={change} error={err("distributor_credit_period_days")} min="0" max="3650" />
                         <Text label="Payment terms" name="distributor_payment_terms" value={form.distributor_payment_terms} change={change} error={err("distributor_payment_terms")} />
                         <Text label="Price list" name="distributor_price_list" value={form.distributor_price_list} change={change} error={err("distributor_price_list")} />
                         <Select label="Currency" name="distributor_currency" value={form.distributor_currency} change={change} error={err("distributor_currency")} options={[{ value: "INR", label: "INR — Indian Rupee" }, { value: "USD", label: "USD — US Dollar" }, { value: "EUR", label: "EUR — Euro" }]} required />
                         <Text label="Tax classification" name="distributor_tax_classification" value={form.distributor_tax_classification} change={change} error={err("distributor_tax_classification")} />
                     </div>
-                    <div className="mb-2 mt-6 rounded-lg bg-slate-50 px-4 py-3"><h4 className="text-sm font-semibold text-slate-800">Banking details</h4></div>
-                    <div className="corporate-form-grid">
+                    <div className="distributor-banking-panel">
+                    <div className="distributor-section-heading"><h4>Banking details</h4><p>Settlement account and verification document.</p></div>
+                    <div className="corporate-form-grid banking-details-grid">
                         <Text label="Bank name" name="distributor_bank_name" value={form.distributor_bank_name} change={change} error={err("distributor_bank_name")} required />
                         <Text label="Account holder name" name="distributor_account_holder_name" value={form.distributor_account_holder_name} change={change} error={err("distributor_account_holder_name")} required />
-                        <Text label="Account number" name="distributor_account_number" value={form.distributor_account_number} change={change} error={err("distributor_account_number")} required />
-                        <Text label="IFSC code" name="distributor_ifsc_code" value={form.distributor_ifsc_code} change={change} error={err("distributor_ifsc_code")} required />
+                        <Text label="Account number" name="distributor_account_number" value={form.distributor_account_number} change={change} error={err("distributor_account_number")} required pattern="[0-9]{6,35}" minLength={6} maxLength={35} inputMode="numeric" title="Enter a valid bank account number containing 6 to 35 digits." />
+                        <Text label="IFSC code" name="distributor_ifsc_code" value={form.distributor_ifsc_code} change={change} error={err("distributor_ifsc_code")} required pattern="[A-Za-z]{4}0[A-Za-z0-9]{6}" minLength={11} maxLength={11} title="Enter a valid 11-character IFSC code, for example SBIN0001234." />
                         <Text label="Branch" name="distributor_bank_branch" value={form.distributor_bank_branch} change={change} error={err("distributor_bank_branch")} />
                         <div className="form-field">
-                            <label className="label" htmlFor="distributor_cancelled_cheque">Cancelled cheque</label>
                             <input className="input" id="distributor_cancelled_cheque" name="distributor_cancelled_cheque" type="file" accept=".pdf,image/jpeg,image/png,image/webp" />
                             {distributorCancelledChequeUrl && <p className="mt-2 text-xs"><a className="text-cyan-700" href={distributorCancelledChequeUrl} target="_blank" rel="noreferrer">View current cancelled cheque</a></p>}
                             <ErrorMessage message={err("distributor_cancelled_cheque")} />
                         </div>
+                    </div>
                     </div>
                 </section>}
 
@@ -1379,7 +1634,7 @@ export default function UserForm({
                     </div>
                 </section>
 
-                <footer className="user-modal-footer mt-6">
+                <footer style={isDistributorType && step === 2 ? { order: 3 } : undefined} className="user-modal-footer mt-6">
                     <button
                         type="button"
                         className="btn-secondary"
@@ -1401,19 +1656,18 @@ export default function UserForm({
                         </button>
                     ) : (
                         <button
-                            type="button"
+                            type="submit"
                             className="btn-primary"
                             disabled={saving}
                             onClick={() => {
                                 explicitSubmitRef.current = true;
-                                formRef.current?.requestSubmit();
                             }}
                         >
                             {saving
                                 ? "Saving…"
                                 : method === "POST"
-                                  ? "Create user"
-                                  : "Update user"}
+                                  ? (distributorMode ? "Create distributor" : "Create employee")
+                                  : (distributorMode ? "Update distributor" : "Update employee")}
                         </button>
                     )}
                 </footer>

@@ -13,7 +13,9 @@ class ConsumptionRequirementService
         $days = (int) $data['day_count'];
         if ($days < 1) throw new InvalidArgumentException('Day count must be greater than zero.');
         $quantity = round((float) $data['quantity_mt'], 3);
-        $plantCode = DB::table('tbl_company')->where('id', $data['plant_id'])->value('company_code');
+        // Daily-consumption rows store business codes, not tbl_company IDs.
+        $plantCode = (string) $data['plant_id'];
+        $plantDatabaseId = DB::table('tbl_company')->where('company_code', $plantCode)->value('id');
         if (array_key_exists('opening_stock_mt', $data)) {
             $stockMt = $data['opening_stock_mt'] === null ? null : (float) $data['opening_stock_mt'];
         } else {
@@ -24,15 +26,12 @@ class ConsumptionRequirementService
         }
 
         $consumptionStart = \Illuminate\Support\Carbon::parse($data['consumption_date']);
-        $start = ($data['period_type'] ?? 'monthly') === 'datewise'
-            ? $consumptionStart->toDateString()
-            : $consumptionStart->copy()->startOfMonth()->toDateString();
-        $end = ! empty($data['effective_to'])
-            ? \Illuminate\Support\Carbon::parse($data['effective_to'])->toDateString()
-            : \Illuminate\Support\Carbon::parse($start)->endOfMonth()->toDateString();
+        // Purchasing is planned monthly even when consumption is split into date-wise periods.
+        $start = $consumptionStart->copy()->startOfMonth()->toDateString();
+        $end = $consumptionStart->copy()->endOfMonth()->toDateString();
         $purchaseQuery = Schema::hasTable('procurement_purchases') ? DB::table('procurement_purchases')
-            ->where('plant_id', $data['plant_id'])->where('material', $data['material'])->where('status', 1)
-            ->when(Schema::hasColumn('procurement_purchases', 'delivery_status'), fn ($query) => $query->whereIn('delivery_status', ['planned', 'in_transit', 'partially_received'])) : null;
+            ->where('plant_id', $plantDatabaseId)->where('material', $data['material'])->where('status', 1)
+            ->when(Schema::hasColumn('procurement_purchases', 'delivery_status'), fn ($query) => $query->where('delivery_status', '<>', 'cancelled')) : null;
         if ($purchaseQuery) {
             if (Schema::hasColumn('procurement_purchases', 'consumption_id') && ! empty($data['id'])) {
                 $purchaseQuery->where('consumption_id', $data['id']);
@@ -42,17 +41,26 @@ class ConsumptionRequirementService
                 $purchaseQuery->whereBetween($orderedDate, [$start, $end]);
             }
         }
-        // API-synchronized POs are mapped by material, plant and delivery date.
-        // Date-wise plans therefore receive only POs delivered inside their
-        // exact effective range; manual POs remain linked by consumption_id.
+        // API-synchronized POs are mapped by material, plant and planning month.
+        // Manual POs remain linked directly to their consumption plan.
         $manualReferences = $purchaseQuery ? (clone $purchaseQuery)->pluck('reference')->filter()->values()->all() : [];
-        $imports = Schema::hasTable('tbl_vendors') && $plantCode
-            ? (float) DB::table('tbl_vendors')->where('status', 1)
+        $imports = 0.0;
+        $includeApiImports = ! array_key_exists('_include_api_imports', $data) || (bool) $data['_include_api_imports'];
+        if ($includeApiImports && Schema::hasTable('tbl_vendors') && $plantCode) {
+            $importQuery = DB::table('tbl_vendors')->where('status', 1)
                 ->where('material_code', $data['material'])->where('plant_code', $plantCode)
-                ->whereBetween('delivery_date', [$start, $end])
                 ->when($manualReferences !== [], fn ($query) => $query->whereNotIn('purchase_order', $manualReferences))
-                ->whereNotNull('mt_quantity')->sum('mt_quantity')
-            : 0.0;
+                ->whereNotNull('mt_quantity');
+            // Only the live month receives overdue open SAP items. Future
+            // months retain their own delivery window so a PO is never counted
+            // again in every subsequent month.
+            if ($consumptionStart->isSameMonth(now())) {
+                $importQuery->whereDate('delivery_date', '<=', $end);
+            } else {
+                $importQuery->whereBetween('delivery_date', [$start, $end]);
+            }
+            $imports = (float) $importQuery->sum('mt_quantity');
+        }
         $plannedBuying = $purchaseQuery ? (float) (clone $purchaseQuery)->sum('quantity_mt') : 0.0;
         $daily = array_key_exists('daily_consumption_mt', $data)
             ? round((float) $data['daily_consumption_mt'], 6)
@@ -89,31 +97,42 @@ class ConsumptionRequirementService
     {
         // Stock imports can also run before this feature's migration is installed.
         if (! Schema::hasColumn('procurement_daily_consumptions', 'extra_required_mt')) return;
-        $openingByBatch = [];
+        $apiImportsAllocated = [];
         $query = DB::table('procurement_daily_consumptions')
             ->when($activeOnly, fn ($q) => $q->where('status', 1))
             ->when($materialCodes !== null, fn ($q) => $q->whereIn('material', $materialCodes));
-        if (Schema::hasColumn('procurement_daily_consumptions', 'planning_batch')) {
-            $query->orderBy('planning_batch')->orderBy('planning_sequence');
-        }
-        $query->orderBy('consumption_date')->orderBy('id')
-            ->chunk(250, function ($rows) use (&$openingByBatch) {
+        $hasPeriodType = Schema::hasColumn('procurement_daily_consumptions', 'period_type');
+        $hasEffectiveTo = Schema::hasColumn('procurement_daily_consumptions', 'effective_to');
+        $query->orderBy('consumption_date')
+            ->when(Schema::hasColumn('procurement_daily_consumptions', 'planning_sequence'), fn ($q) => $q->orderBy('planning_sequence'))
+            ->orderBy('id')
+            ->chunk(250, function ($rows) use (&$apiImportsAllocated, $hasPeriodType, $hasEffectiveTo) {
                 foreach ($rows as $row) {
                     $data = (array) $row;
-                    if ((int) $row->day_count < 1) {
-                        $date = \Illuminate\Support\Carbon::parse($row->consumption_date);
-                        $data['day_count'] = $date->daysInMonth - $date->day + 1;
+                    $periodStart = \Illuminate\Support\Carbon::parse($row->consumption_date)->startOfDay();
+                    $isDatewise = $hasPeriodType && (string) ($row->period_type ?? '') === 'datewise';
+                    $periodEnd = $isDatewise && $hasEffectiveTo && ! empty($row->effective_to)
+                        ? \Illuminate\Support\Carbon::parse($row->effective_to)->startOfDay()
+                        : $periodStart->copy()->endOfMonth()->startOfDay();
+                    $data['day_count'] = max(1, (int) round($periodStart->copy()->startOfDay()->diffInDays($periodEnd->copy()->startOfDay())) + 1);
+                    if (array_key_exists('daily_consumption_mt', $data)) {
+                        $data['quantity_mt'] = round((float) $data['daily_consumption_mt'] * $data['day_count'], 3);
                     }
-                    $batchKey = ($row->planning_batch ?? null)
-                        ? (string) $row->planning_batch
-                        : 'single:'.$row->id;
-                    if ((int) ($row->planning_sequence ?? 1) > 1 && array_key_exists($batchKey, $openingByBatch)) {
-                        $data['opening_stock_mt'] = $openingByBatch[$batchKey];
-                    }
+                    $planKey = (string) $row->plant_id.'|'.(string) $row->material;
+                    // Every planning record must show the current live stock
+                    // from the material/plant stock table. Projected closing
+                    // belongs to the plan calculation and must not overwrite
+                    // the next record's Current Stock value.
+                    unset($data['opening_stock_mt']);
+                    $importKey = $planKey.'|'.$periodStart->format('Y-m');
+                    $data['_include_api_imports'] = ! isset($apiImportsAllocated[$importKey]);
                     $calculation = $this->calculate($data);
                     DB::table('procurement_daily_consumptions')->where('id', $row->id)
-                        ->update($calculation + ['day_count' => $data['day_count']]);
-                    $openingByBatch[$batchKey] = $calculation['projected_closing_mt'] ?? null;
+                        ->update($calculation + [
+                            'day_count' => $data['day_count'],
+                            'quantity_mt' => $data['quantity_mt'],
+                        ]);
+                    $apiImportsAllocated[$importKey] = true;
                 }
             });
     }

@@ -1,5 +1,5 @@
 @extends('layout.app')
-@section('title', $pageTitle.' | APL Connect')
+@section('title', $pageTitle)
 @section('content')
 <div class="w-full max-w-none">
     <nav class="crud-breadcrumb mb-4" aria-label="Breadcrumb">

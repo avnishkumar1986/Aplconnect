@@ -25,7 +25,7 @@
                     <td><span class="log-type {{ strtolower($log->type) }}">{{ $log->type }}</span></td>
                     <td><strong>{{ $log->title }}</strong><small>{{ $log->ip_address }}</small></td>
                     <td><span class="log-actor">{{ $log->actor?->name ?? 'System' }}</span></td>
-                    <td>{{ $log->created_at->format('d M Y, h:i A') }}</td>
+                    <td>{{ $log->created_at->format('d.m.Y, h:i A') }}</td>
                     <td><details class="log-details"><summary>View Details</summary><pre>{{ json_encode($log->data,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES) }}</pre></details></td>
                 </tr>
             @empty

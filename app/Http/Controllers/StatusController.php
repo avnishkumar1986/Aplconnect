@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\{Address, ApiIntegration, Company, Contact, Department, Designation, DesignationLevel, Login, UserProfile, UserType};
+use App\Models\{Address, ApiIntegration, Company, Contact, Department, Designation, DesignationLevel, DistributorTier, DistributorType, Login, UserProfile, UserType};
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Gate;
 
@@ -14,6 +14,8 @@ class StatusController extends Controller
         'accounts' => Login::class,
         'users' => UserProfile::class,
         'user-types' => UserType::class,
+        'distributor-types' => DistributorType::class,
+        'distributor-tiers' => DistributorTier::class,
         'companies' => Company::class,
         'departments' => Department::class,
         'designations' => Designation::class,
@@ -24,11 +26,14 @@ class StatusController extends Controller
     public function __invoke(string $resource, int $id): JsonResponse
     {
         abort_unless(isset(self::RESOURCES[$resource]), 404);
-        Gate::authorize(in_array($resource, ['departments', 'designations', 'designation-levels'], true)
-            ? 'users.edit'
-            : $resource.'.edit');
-
         $record = self::RESOURCES[$resource]::findOrFail($id);
+        $permission = in_array($resource, ['departments', 'designations', 'designation-levels'], true)
+            ? 'users.edit'
+            : $resource.'.edit';
+        if ($resource === 'users' && $record->userType?->type_name && str_contains(strtolower($record->userType->type_name), 'distributor')) {
+            $permission = 'distributors.edit';
+        }
+        Gate::authorize($permission);
         $statusColumn = $resource === 'companies' ? 'Status' : 'status';
         $updatedByColumn = match ($resource) {
             'companies' => 'Updated_by',
@@ -43,6 +48,12 @@ class StatusController extends Controller
             $changes[$updatedByColumn] = auth()->id();
         }
         $record->update($changes);
+        if ($record instanceof UserProfile && $record->login) {
+            $record->login->update([
+                'status' => ! $active,
+                'updated_by' => auth()->id(),
+            ]);
+        }
 
         return response()->json([
             'active' => ! $active,

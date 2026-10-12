@@ -206,6 +206,7 @@
 
         .supply-planning-records .planning-shortage { background:#fff3f2!important; color:#b42318!important; font-weight:700; }
         .supply-planning-records .planning-buy { background:#fff9e8!important; color:#8a5a00!important; font-weight:700; }
+        .supply-planning-records .planning-buy.planning-shortage { background:#fff3f2!important; color:#b42318!important; font-weight:700; }
         .supply-planning-records .dataTables_wrapper { padding:20px 18px 18px; }
         .supply-planning-records .dataTables_filter input,
         .supply-planning-records .dataTables_length select { border-color:#cbdbe5!important; background:#fff!important; }
@@ -222,6 +223,29 @@
         .supply-planning-records .dt-container > .dt-layout-row:first-child { flex-wrap:wrap; }
 
         @media (max-width: 640px) {
+            .supply-planning-records,
+            .supply-planning-records .planning-panel,
+            .supply-planning-records .planning-scroll,
+            .supply-planning-records .dt-container,
+            .supply-planning-records .dt-layout-table,
+            .supply-planning-records .dt-layout-cell,
+            .supply-planning-records #consumptions-datatable {
+                width:100%!important;
+                max-width:100%!important;
+            }
+            .supply-planning-records .planning-panel {
+                padding:0!important;
+                overflow:hidden;
+            }
+            .supply-planning-records #consumptions-datatable {
+                min-width:0!important;
+                table-layout:fixed!important;
+            }
+            .supply-planning-records #consumptions-datatable th:nth-child(6),
+            .supply-planning-records #consumptions-datatable td:nth-child(6) {
+                width:100%!important;
+                white-space:normal!important;
+            }
             .planning-panel-head.supply-planning-header {
                 padding: 12px 16px;
                 align-items:flex-start;
@@ -262,7 +286,7 @@
                            aria-label="Add Consumption"
                            data-form-modal
                            data-modal-title="Add Daily Consumption"
-                           data-modal-size="large"
+                           data-modal-size="distributor"
                            href="{{ route('admin.procurement.consumptions.create') }}">
                             <svg width="18"
                                  height="18"
@@ -303,11 +327,23 @@
                             <th scope="col">Planning Period</th>
 
                             <th scope="col" class="planning-number">
-                                Current Stock (MT)
+                                Current Stock (DB Unit)
                             </th>
 
                             <th scope="col" class="planning-number">
-                                Consumption Quantity (MT)
+                                Buying / Imports (MT)
+                            </th>
+
+                            <th scope="col" class="planning-number">
+                                Total Availability (MT)
+                            </th>
+
+                            <th scope="col" class="planning-number">
+                                Daily Consumption (MT/day)
+                            </th>
+
+                            <th scope="col" class="planning-number">
+                                Total Required (MT)
                             </th>
 
                             <th scope="col" class="planning-number">
@@ -377,16 +413,32 @@
 
                                 <td data-order="{{ $entry->consumption_date }}-{{ str_pad((string) $entry->id, 12, '0', STR_PAD_LEFT) }}">
                                     <span class="period-badge">{{ ucfirst($entry->period_type ?? 'monthly') }}</span><br>
-                                    {{ \Illuminate\Support\Carbon::parse($entry->consumption_date)->format('d M Y') }}
+                                    {{ \Illuminate\Support\Carbon::parse($entry->consumption_date)->format('d.m.Y') }}
                                     @if(($entry->period_type ?? 'monthly') === 'datewise' && $entry->effective_to)
-                                        <div class="planning-muted">to {{ \Illuminate\Support\Carbon::parse($entry->effective_to)->format('d M Y') }}</div>
+                                        <div class="planning-muted">to {{ \Illuminate\Support\Carbon::parse($entry->effective_to)->format('d.m.Y') }}</div>
                                     @else
                                         <div class="planning-muted">Carries forward until changed</div>
                                     @endif
                                 </td>
 
                                 <td class="planning-number">
-                                    {{ $entry->current_stock_mt === null ? 'N/A' : number_format($entry->current_stock_mt, 3) }}
+                                    @if($entry->database_current_stock === null)
+                                        N/A
+                                    @else
+                                        {{ number_format((float) $entry->database_current_stock, 3, '.', ',') }}
+                                    @endif
+                                </td>
+
+                                <td class="planning-number">
+                                    {{ number_format((float) $entry->total_buying_mt, 3) }}
+                                </td>
+
+                                <td class="planning-number">
+                                    {{ $entry->availability_mt === null ? 'N/A' : number_format($entry->availability_mt, 3) }}
+                                </td>
+
+                                <td class="planning-number">
+                                    {{ number_format($entry->daily_consumption_mt, 3) }}
                                 </td>
 
                                 <td class="planning-number">
@@ -401,7 +453,7 @@
                                     {{ $grossShortage === null ? 'N/A' : number_format($grossShortage, 3) }}
                                 </td>
 
-                                <td class="planning-number planning-buy">
+                                <td class="planning-number planning-buy {{ $hasShortage ? 'planning-shortage' : '' }}">
                                     {{ $shortage === null ? 'N/A' : number_format($shortage, 3) }}
                                 </td>
 
@@ -466,6 +518,31 @@
 
 @push('scripts')
 <script>
+    const refreshedPlanningUrl = new URL(window.location.href);
+    if (refreshedPlanningUrl.searchParams.has('refreshed')) {
+        // Notify an already-open balance-sheet tab that its figures changed.
+        localStorage.setItem('procurement-calculations-updated', refreshedPlanningUrl.searchParams.get('refreshed') || String(Date.now()));
+        refreshedPlanningUrl.searchParams.delete('refreshed');
+        window.history.replaceState({}, '', refreshedPlanningUrl.pathname + refreshedPlanningUrl.search + refreshedPlanningUrl.hash);
+    }
+
+    window.addEventListener('pageshow', function (event) {
+        // Browsers can restore a DataTable from the back-forward cache. Always
+        // request the freshly recalculated values when that happens.
+        if (event.persisted) window.location.reload();
+    });
+
+    // Refresh any other open planning-list tab after an update as well.
+    window.addEventListener('storage', function (event) {
+        if (event.key === 'procurement-calculations-updated' && event.newValue) {
+            window.location.reload();
+        }
+    });
+</script>
+@endpush
+
+@push('scripts')
+<script>
 document.addEventListener('DOMContentLoaded', () => {
     const placeConsumptionActions = () => {
         const table = document.getElementById('consumptions-datatable');
@@ -483,6 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const observer = new MutationObserver(() => placeConsumptionActions() && observer.disconnect());
         observer.observe(document.querySelector('.supply-planning-records'), { childList:true, subtree:true });
     }
+    document.addEventListener('procurement-planning-refreshed', placeConsumptionActions);
 });
 </script>
 @endpush

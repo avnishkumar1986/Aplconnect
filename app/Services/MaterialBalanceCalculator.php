@@ -6,14 +6,17 @@ class MaterialBalanceCalculator
 {
     public function calculate(?float $opening, float $plannedBuying, float $imports, float $dailyConsumption, int $workingDays): array
     {
-        if ($workingDays < 1 || $workingDays > 31) throw new \InvalidArgumentException('Working days must be between 1 and 31.');
+        if ($workingDays < 1 || $workingDays > 31) throw new \InvalidArgumentException('Days must be between 1 and 31.');
         $totalBuying = round($plannedBuying + $imports, 3);
         $required = round($dailyConsumption * $workingDays, 3);
         $availability = $opening === null ? null : round($opening + $totalBuying, 3);
         $closing = $availability === null ? null : round($availability - $required, 3);
         $grossShortage = $opening === null ? null : max(0, round($required - $opening, 3));
+        $coverDays = $opening === null || $dailyConsumption <= 0
+            ? null
+            : round(min($workingDays, max(0, $opening / $dailyConsumption)), 1);
         return [
-            'opening' => $opening, 'cover_days' => $opening === null || $dailyConsumption <= 0 ? null : round($opening / $dailyConsumption, 3),
+            'opening' => $opening, 'cover_days' => $coverDays,
             'to_buy' => round($plannedBuying, 3), 'sap_buying' => round($imports, 3), 'local_buying' => round($plannedBuying, 3),
             'total_buying' => $totalBuying, 'availability' => $availability,
             'daily_consumption' => $dailyConsumption, 'working_days' => $workingDays, 'expected_consumption' => $required,

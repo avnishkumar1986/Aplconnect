@@ -30,6 +30,7 @@
                 <tbody>
                     @forelse($integrations as $integration)
                         @php($lastRun = $integration->runs->first())
+                        @php($isRunning = $lastRun && in_array($lastRun->status, ['queued', 'running'], true) && $lastRun->started_at?->gte(now()->subHour()))
                         <tr>
                             <td></td>
                             <td>{{ $loop->iteration }}</td>
@@ -56,16 +57,16 @@
                                     <span class="{{ $integration->status ? 'text-emerald-700' : 'text-slate-400' }}">{{ $integration->status ? 'Active' : 'Inactive' }}</span>
                                 @endcan
                             </td>
-                            <td>{{ $lastRun ? str($lastRun->status)->title() : 'Never' }}<small
-                                    class="block text-slate-400">{{ $lastRun?->started_at?->format('d M Y H:i') }}</small>
+                            <td data-order="{{ $lastRun?->started_at?->timestamp ?? 0 }}">{{ $lastRun ? str($lastRun->status)->title() : 'Never' }}<small
+                                    class="block text-slate-400">{{ $lastRun?->started_at?->format('d.m.Y H:i') }}</small>
                             </td>
                             <td>
                                 <div class="flex gap-2">
                                     @can('api-integrations.edit')
-                                        <form method="POST" action="{{ route('admin.api-integrations.run', $integration) }}">
-                                            @csrf<button class="btn-primary inline-flex items-center gap-1.5" @disabled(!$integration->status) title="Run synchronization">
+                                        <form method="POST" action="{{ route('admin.api-integrations.run', $integration) }}" data-api-run-form>
+                                            @csrf<button class="btn-primary inline-flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50" @disabled(!$integration->status || $isRunning) title="{{ $isRunning ? 'Synchronization in progress' : 'Run synchronization' }}">
                                                 <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m8 5 11 7-11 7Z"/></svg>
-                                                <span>Run</span>
+                                                <span>{{ $isRunning ? 'Running' : 'Run' }}</span>
                                             </button></form>
                                         @endcan @can('api-integrations.view')
                                         <a class="btn-secondary inline-flex items-center gap-1.5"
@@ -98,3 +99,18 @@
         </div>
     </div>
 @endsection
+
+@push('scripts')
+    <script>
+        document.querySelectorAll('[data-api-run-form]').forEach(function (form) {
+            form.addEventListener('submit', function () {
+                var button = form.querySelector('button[type="submit"], button:not([type])');
+                if (!button || button.disabled) return;
+                button.disabled = true;
+                button.setAttribute('aria-disabled', 'true');
+                var label = button.querySelector('span');
+                if (label) label.textContent = 'Starting...';
+            });
+        });
+    </script>
+@endpush

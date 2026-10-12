@@ -18,6 +18,31 @@ const tablePageLength = Number.isInteger(configuredTablePageLength) && configure
     ? configuredTablePageLength
     : 50;
 
+const refreshDataTablePageIndicator = api => {
+    const container = api.table().container();
+    const paging = container?.querySelector('.dt-paging nav') ?? container?.querySelector('.dt-paging');
+    if (!paging) return;
+
+    const info = api.page.info();
+    let indicator = paging.querySelector('.dt-page-indicator');
+    if (!indicator) {
+        indicator = document.createElement('span');
+        indicator.className = 'dt-page-indicator';
+        indicator.setAttribute('aria-live', 'polite');
+    }
+    const totalPages = Math.max(info.pages, 1);
+    indicator.textContent = `Page ${Math.min(info.page + 1, totalPages)} of ${totalPages}`;
+    const nextButton = paging.querySelector('.next');
+    nextButton ? paging.insertBefore(indicator, nextButton) : paging.append(indicator);
+};
+
+const standardPagination = {
+    pagingType: 'simple',
+    drawCallback: function () {
+        refreshDataTablePageIndicator(this.api());
+    },
+};
+
 const finaliseDataTableLayout = table => {
     table.classList.add('ui-data-table');
     const container = table.closest('.dt-container');
@@ -48,11 +73,22 @@ const initialiseSelect2 = (root = document) => {
         const select = $(this);
         if (select.hasClass('select2-hidden-accessible')) return;
         const modal = select.closest('[data-form-modal-instance]');
+        const isMaterialSearch = select.is('[data-material-search], select[data-material]');
+        const materialMatcher = (params, data) => {
+            const term = (params.term || '').trim().toLocaleLowerCase();
+            if (!term) return data;
+            if (!data.element) return null;
+            const searchable = `${data.text || ''} ${data.element.dataset.searchTerms || ''}`.toLocaleLowerCase();
+            const searchWords = term.split(/\s+/).filter(Boolean);
+            return searchWords.every(word => searchable.includes(word)) ? data : null;
+        };
         select.select2({
             width: '100%',
             dropdownParent: modal.length ? modal.find('.global-form-dialog') : $(document.body),
             placeholder: select.find('option:first').text(),
             allowClear: !select.prop('required'),
+            matcher: isMaterialSearch ? materialMatcher : undefined,
+            minimumResultsForSearch: isMaterialSearch ? 0 : undefined,
         });
     });
 };
@@ -171,7 +207,7 @@ const initialiseProcurementForms = (root = document) => {
                 const selectedVendor = vendor.dataset.selected || vendor.value;
                 const hasMaterial = purchaseMaterial.value !== '';
                 vendor.replaceChildren(new Option(hasMaterial ? '— Select vendor —' : '— Select material first —', ''));
-                vendorOptions.filter(option => option.dataset.material === purchaseMaterial.value)
+                vendorOptions.filter(option => option.dataset.localOption === 'true' || option.dataset.material === purchaseMaterial.value)
                     .forEach(option => vendor.append(option.cloneNode(true)));
                 if ([...vendor.options].some(option => option.value === selectedVendor)) vendor.value = selectedVendor;
                 vendor.dataset.selected = '';
@@ -270,6 +306,7 @@ const initialiseDataTables = () => {
     table.dataset.initialized = 'true';
 
     const dataTable = new DataTable(table, {
+        ...standardPagination,
         responsive: {
             details: { type: 'column', target: 0 },
         },
@@ -281,7 +318,7 @@ const initialiseDataTables = () => {
         },
         pageLength: tablePageLength,
         lengthMenu: [10, 15, 25, 50, 100],
-        order: [[2, 'asc']],
+        order: [[13, 'desc']],
         autoWidth: false,
         columnDefs: [
             { className: 'dtr-control', orderable: false, searchable: false, targets: 0 },
@@ -292,7 +329,7 @@ const initialiseDataTables = () => {
             searchPlaceholder: 'Search employee ID or name...',
             lengthMenu: 'Show _MENU_ entries',
             info: 'Showing _START_ to _END_ of _TOTAL_ entries',
-            paginate: { previous: '‹', next: '›' },
+            paginate: { previous: 'Previous', next: 'Next' },
         },
     });
     finaliseDataTableLayout(table);
@@ -341,6 +378,7 @@ const initialiseApiIntegrationDataTable = () => {
     table.dataset.initialized = 'true';
 
     new DataTable(table, {
+        ...standardPagination,
         responsive: { details: { type: 'column', target: 0 } },
         layout: {
             topStart: 'search',
@@ -350,7 +388,7 @@ const initialiseApiIntegrationDataTable = () => {
         },
         pageLength: tablePageLength,
         lengthMenu: [10, 25, 50, 100],
-        order: [[2, 'asc']],
+        order: [[9, 'desc']],
         autoWidth: false,
         columnDefs: [
             { className: 'dtr-control', orderable: false, searchable: false, targets: 0 },
@@ -362,7 +400,7 @@ const initialiseApiIntegrationDataTable = () => {
             lengthMenu: 'Show _MENU_ entries',
             info: 'Showing _START_ to _END_ of _TOTAL_ entries',
             emptyTable: 'No API integrations configured.',
-            paginate: { previous: '‹', next: '›' },
+            paginate: { previous: 'Previous', next: 'Next' },
         },
     });
     finaliseDataTableLayout(table);
@@ -374,11 +412,12 @@ const initialiseApiRunDataTable = () => {
     table.dataset.initialized = 'true';
 
     new DataTable(table, {
+        ...standardPagination,
         responsive: { details: { type: 'column', target: 0 } },
         layout: { topStart: 'search', topEnd: null, bottomStart: 'info', bottomEnd: 'paging' },
         pageLength: tablePageLength,
         lengthMenu: [10, 25, 50, 100],
-        order: [[4, 'desc']],
+        order: [[5, 'desc']],
         autoWidth: false,
         columnDefs: [
             { className: 'dtr-control', orderable: false, searchable: false, targets: 0 },
@@ -390,7 +429,7 @@ const initialiseApiRunDataTable = () => {
             lengthMenu: 'Show _MENU_ entries',
             info: 'Showing _START_ to _END_ of _TOTAL_ runs',
             emptyTable: 'No API runs in the last 24 hours.',
-            paginate: { previous: '‹', next: '›' },
+            paginate: { previous: 'Previous', next: 'Next' },
         },
     });
     finaliseDataTableLayout(table);
@@ -406,9 +445,9 @@ const initialiseMaterialsDataTable = () => {
         return element.innerHTML;
     };
     const columns = [
-        { data: null, defaultContent: '' },
-        { data: 'sno' },
-        { data: null, render: (data, type, row) => type === 'display' ? `<strong>${escapeHtml(row.label)}</strong><small class="block text-slate-400">${escapeHtml(row.key)}</small>` : row.label },
+        { data: null, defaultContent: '', responsivePriority: 1 },
+        { data: 'sno', responsivePriority: 2 },
+        { data: null, responsivePriority: 3, render: (data, type, row) => type === 'display' ? `<strong>${escapeHtml(row.label)}</strong><small class="block text-slate-400">${escapeHtml(row.key)}</small>` : row.label },
         { data: 'mtart', defaultContent: '—' },
         { data: 'matkl', defaultContent: '—' },
         { data: 'meins', defaultContent: '—' },
@@ -416,6 +455,7 @@ const initialiseMaterialsDataTable = () => {
         { data: 'current_stock', className: 'text-right' },
         { data: 'stock_value', className: 'text-right' },
         { data: 'status', render: data => `<span class="font-semibold ${data === 'Active' ? 'text-emerald-700' : 'text-slate-400'}">${escapeHtml(data)}</span>` },
+        { data: 'updated_at', visible: false, searchable: false },
     ];
     if (table.dataset.showRemarks === '1') columns.push({ data: 'remarks', defaultContent: '-', orderable: false, render: (data, type) => type === 'display' ? escapeHtml(data) : data });
     if (table.dataset.actions === '1') columns.push({ data: null, render: (data, type, row) => {
@@ -426,6 +466,7 @@ const initialiseMaterialsDataTable = () => {
     } });
 
     new DataTable(table, {
+        ...standardPagination,
         processing: true,
         serverSide: true,
         responsive: { details: { type: 'column', target: 0 } },
@@ -433,7 +474,7 @@ const initialiseMaterialsDataTable = () => {
         layout: { topStart: 'search', topEnd: null, bottomStart: 'info', bottomEnd: 'paging' },
         pageLength: tablePageLength,
         lengthMenu: [10, 25, 50, 100],
-        order: [[2, 'asc']],
+        order: [[10, 'desc']],
         autoWidth: false,
         columnDefs: [
             { className: 'dtr-control', orderable: false, searchable: false, targets: 0 },
@@ -447,7 +488,7 @@ const initialiseMaterialsDataTable = () => {
             info: 'Showing _START_ to _END_ of _TOTAL_ materials',
             processing: 'Loading materials...',
             emptyTable: 'No synchronized procurement stock found.',
-            paginate: { previous: '‹', next: '›' },
+            paginate: { previous: 'Previous', next: 'Next' },
         },
     });
     finaliseDataTableLayout(table);
@@ -460,6 +501,7 @@ const initialiseSimpleDataTables = () => document.querySelectorAll('[data-simple
     if (table.hasAttribute('data-sno')) nonOrderableColumns.push(table.hasAttribute('data-responsive-control') ? 1 : 0);
     if (table.hasAttribute('data-actions')) nonOrderableColumns.push(-1);
     new DataTable(table, {
+        ...standardPagination,
         responsive: table.hasAttribute('data-responsive-control') ? { details: { type: 'column', target: 0 } } : true,
         pageLength: tablePageLength,
         lengthMenu: [10, 25, 50, 100],
@@ -469,7 +511,7 @@ const initialiseSimpleDataTables = () => document.querySelectorAll('[data-simple
             ...(nonOrderableColumns.length ? [{ orderable: false, searchable: false, targets: nonOrderableColumns }] : []),
         ],
         layout: { topStart: 'search', topEnd: null, bottomStart: 'info', bottomEnd: 'paging' },
-        language: { search: '', searchPlaceholder: table.dataset.searchPlaceholder || 'Search...', emptyTable: 'No records found.', paginate: { previous: '‹', next: '›' } },
+        language: { search: '', searchPlaceholder: table.dataset.searchPlaceholder || 'Search...', emptyTable: 'No records found.', paginate: { previous: 'Previous', next: 'Next' } },
     });
     finaliseDataTableLayout(table);
     if (table.dataset.tableToolbar) {
@@ -484,6 +526,7 @@ const initialiseSimpleDataTables = () => document.querySelectorAll('[data-simple
         if (length && bottomRow) bottomRow.prepend(length);
     }
 });
+window.initialiseSimpleDataTables = initialiseSimpleDataTables;
 
 const initialiseAdminShell = () => {
     const sidebar = document.getElementById('sidebar');
@@ -582,17 +625,148 @@ const initialiseGlobalFormModal = () => {
             const formDocument = new DOMParser().parseFromString(await response.text(), 'text/html');
             const page = formDocument.querySelector('.modal-form-page');
             if (!page) throw new Error('The requested page did not return a modal form.');
+            // Capture inline initialisers before moving the page node out of the
+            // parsed document. Once moved, querying formDocument no longer finds
+            // scripts nested inside the modal page.
+            const inlineScripts = [...formDocument.querySelectorAll('script:not([src])')]
+                .filter((script) => {
+                    const type = (script.getAttribute('type') || '').toLowerCase();
+                    return (!type || type === 'text/javascript') && script.textContent.trim();
+                })
+                .map((script) => script.textContent);
             // Keep the modal page wrapper: it is the styling and sizing boundary
             // used by both the dialog CSS and resize observer.
             content.replaceChildren(page);
-            formDocument.querySelectorAll('script:not([src])').forEach((script) => {
-                const type = (script.getAttribute('type') || '').toLowerCase();
-                if ((!type || type === 'text/javascript') && script.textContent.trim()) Function(script.textContent)();
-            });
+            inlineScripts.forEach((script) => Function(script)());
                     window.mountAdminForms?.();
                     window.mountCompanyForms?.();
                     initialiseProcurementForms(content);
             window.initialiseSelect2?.(content);
+            const batchConsumptionForm = content.querySelector('form[data-batch-consumption]');
+            if (batchConsumptionForm) {
+                batchConsumptionForm.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+                    batchConsumptionForm.querySelector('[data-client-validation]')?.remove();
+                    if (!batchConsumptionForm.checkValidity()) {
+                        const invalidField = batchConsumptionForm.querySelector(':invalid');
+                        const alert = document.createElement('div');
+                        alert.className = 'batch-errors';
+                        alert.dataset.clientValidation = 'true';
+                        alert.setAttribute('role', 'alert');
+                        alert.textContent = invalidField?.validationMessage || 'Please complete all required fields.';
+                        batchConsumptionForm.prepend(alert);
+                        content.scrollTo({ top: 0, behavior: 'smooth' });
+                        invalidField?.focus();
+                        return;
+                    }
+
+                    const submitButton = batchConsumptionForm.querySelector('[type="submit"]');
+                    const originalLabel = submitButton?.textContent;
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                        submitButton.textContent = 'Saving…';
+                    }
+
+                    try {
+                        const response = await fetch(batchConsumptionForm.action, {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            body: new FormData(batchConsumptionForm),
+                            headers: {
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Accept': 'application/json',
+                            },
+                        });
+
+                        if (response.status === 422) {
+                            const payload = await response.json();
+                            const messages = Object.values(payload.errors || {}).flat();
+                            const alert = document.createElement('div');
+                            alert.className = 'batch-errors';
+                            alert.dataset.clientValidation = 'true';
+                            alert.setAttribute('role', 'alert');
+                            alert.textContent = messages[0] || payload.message || 'Please check the form and try again.';
+                            batchConsumptionForm.prepend(alert);
+                            content.scrollTo({ top: 0, behavior: 'smooth' });
+                            return;
+                        }
+
+                        if (!response.ok) throw new Error('Unable to save consumption entries.');
+                        window.location.href = response.url || batchConsumptionForm.action;
+                    } catch (error) {
+                        const alert = document.createElement('div');
+                        alert.className = 'batch-errors';
+                        alert.dataset.clientValidation = 'true';
+                        alert.setAttribute('role', 'alert');
+                        alert.textContent = error.message || 'Unable to save consumption entries.';
+                        batchConsumptionForm.prepend(alert);
+                        content.scrollTo({ top: 0, behavior: 'smooth' });
+                    } finally {
+                        if (submitButton?.isConnected) {
+                            submitButton.disabled = false;
+                            submitButton.textContent = originalLabel;
+                        }
+                    }
+                });
+            }
+            const consumptionEditForm = content.querySelector('form.consumption-record-form input[name="_method"][value="PUT"]')?.form;
+            if (consumptionEditForm) {
+                consumptionEditForm.addEventListener('submit', async (event) => {
+                    event.preventDefault();
+                    if (!consumptionEditForm.reportValidity()) return;
+
+                    const submitButton = consumptionEditForm.querySelector('[type="submit"]');
+                    const originalLabel = submitButton?.textContent;
+                    if (submitButton) {
+                        submitButton.disabled = true;
+                        submitButton.textContent = 'Updating…';
+                    }
+
+                    try {
+                        const response = await fetch(consumptionEditForm.action, {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            body: new FormData(consumptionEditForm),
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                            cache: 'no-store',
+                        });
+                        const responseHtml = await response.text();
+                        const responseDocument = new DOMParser().parseFromString(responseHtml, 'text/html');
+                        const freshPlanning = responseDocument.querySelector('.supply-planning-records');
+                        const currentPlanning = document.querySelector('.supply-planning-records');
+
+                        if (response.ok && freshPlanning && currentPlanning) {
+                            currentPlanning.replaceWith(freshPlanning);
+                            window.initialiseSimpleDataTables?.();
+                            document.dispatchEvent(new CustomEvent('procurement-planning-refreshed'));
+                            localStorage.setItem('procurement-calculations-updated', String(Date.now()));
+                            close();
+                            return;
+                        }
+
+                        // Validation failures stay visible instead of silently
+                        // leaving the user with unchanged figures.
+                        const invalidPage = responseDocument.querySelector('.modal-form-page');
+                        if (invalidPage) {
+                            content.replaceChildren(invalidPage);
+                            initialiseProcurementForms(content);
+                            window.initialiseSelect2?.(content);
+                        } else {
+                            throw new Error('The update could not be completed.');
+                        }
+                    } catch (error) {
+                        const message = document.createElement('div');
+                        message.className = 'global-form-load-error';
+                        message.innerHTML = `<strong>Unable to update consumption.</strong><p>${error.message}</p>`;
+                        consumptionEditForm.prepend(message);
+                    } finally {
+                        if (submitButton?.isConnected) {
+                            submitButton.disabled = false;
+                            submitButton.textContent = originalLabel;
+                        }
+                    }
+                });
+            }
             classifyDialog();
             loading?.classList.add('hidden');
             content.classList.add('is-ready');

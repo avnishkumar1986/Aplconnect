@@ -6,6 +6,23 @@
     @php
         $presets = [
             [
+                'key' => 'imast-inspired',
+                'label' => 'IMAST Inspired',
+                'primary' => '#bd2ca6',
+                'secondary' => '#f36b2f',
+                'sidebar' => '#2b1828',
+                'canvas' => '#f6f6f2',
+                'card' => '#ffffff',
+                'light_navbar_bg' => '#fafaf7',
+                'light_sidebar_bg' => '#2b1828',
+                'light_navbar_text' => '#202020',
+                'light_sidebar_text' => '#d7d2d6',
+                'dark_navbar_bg' => '#191919',
+                'dark_sidebar_bg' => '#1d101b',
+                'dark_navbar_text' => '#f7f4f6',
+                'dark_sidebar_text' => '#d7d2d6',
+            ],
+            [
                 'key' => 'default-indigo',
                 'label' => 'Default Indigo',
                 'primary' => '#6366f1',

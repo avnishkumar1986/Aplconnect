@@ -2,8 +2,8 @@
 
 @php
     $editing = (bool) $record;
-    $recordCompanyCode = $record ? optional($companies->firstWhere('id', $record->company_id))->company_code : null;
-    $recordPlantCode = $record ? optional($plants->firstWhere('id', $record->plant_id))->company_code : null;
+    $recordCompanyCode = $record ? (string) $record->company_id : null;
+    $recordPlantCode = $record ? (string) $record->plant_id : null;
     $selectedCompanyCode = old('company_id', $recordCompanyCode ?? $companies->first()?->company_code);
     $selectedPlantCode = old('plant_id', $recordPlantCode);
 @endphp
@@ -75,6 +75,7 @@ select[aria-invalid="true"] {
     width: auto !important;
     min-width: 76px;
 }
+.formatted-date-picker{position:relative;width:100%}.formatted-date-picker>.input{width:100%;padding-right:46px}.formatted-date-picker-icon{position:absolute;z-index:2;top:50%;right:5px;display:grid;width:34px;height:34px;min-height:34px;transform:translateY(-50%);place-items:center;border:0;border-radius:7px;background:transparent;color:#5f738d;cursor:pointer}.formatted-date-picker-icon:hover{background:#eaf3f7;color:#0b8794}.formatted-date-picker-icon:focus-visible{outline:2px solid #159aa6;outline-offset:1px}.formatted-date-picker-icon svg{display:block;width:17px;height:17px}.formatted-date-picker-native{position:absolute!important;right:8px!important;bottom:4px!important;width:1px!important;height:1px!important;min-width:1px!important;min-height:1px!important;margin:0!important;padding:0!important;border:0!important;clip-path:inset(50%)!important;opacity:0!important;pointer-events:none!important}
 </style>
 
 @section('content')
@@ -90,7 +91,8 @@ select[aria-invalid="true"] {
           action="{{ $editing ? route('admin.procurement.consumptions.update', $record->id) : route('admin.procurement.consumptions.store') }}"
           data-procurement-form
           data-material-form
-          data-stock-map="{{ json_encode($stockMap) }}">
+          data-stock-map="{{ json_encode($stockMap) }}"
+          data-monthly-next-dates="{{ json_encode($monthlyNextDates ?? []) }}">
         @csrf
 
         @if ($editing)
@@ -158,12 +160,14 @@ select[aria-invalid="true"] {
                         required
                         data-material
                         data-searchable-select
+                        data-material-search
                         data-selected="{{ old('material', $record?->material) }}">
                     <option value="">— Select plant first —</option>
 
                     @foreach ($materials as $material)
                         <option value="{{ $material->matnr }}"
                                 data-plant-code="{{ $material->plant_code }}"
+                                data-search-terms="{{ $material->matnr }} {{ $material->maktx }} {{ $material->matkl }}"
                                 @selected(old('material', $record?->material) == $material->matnr)>
                             {{ $material->matnr }}{{ $material->maktx ? ' - '.$material->maktx : '' }}{{ $material->matkl ? ' · '.$material->matkl : '' }}
                         </option>
@@ -181,17 +185,24 @@ select[aria-invalid="true"] {
             </div>
 
             @php
+                $displayDate = function ($value) {
+                    if (!$value) return '';
+                    foreach (['Y-m-d', 'd-m-Y'] as $format) {
+                        try { return \Illuminate\Support\Carbon::createFromFormat($format, $value)->format('d-m-Y'); } catch (\Throwable) {}
+                    }
+                    return '';
+                };
                 $datewiseRows = old('datewise_entries', [[
                     'from' => $record?->consumption_date ?? now()->toDateString(),
                     'until' => $record?->effective_to ?? '',
-                    'quantity_mt' => $record?->quantity_mt ?? '',
+                    'daily_consumption_mt' => $record?->daily_consumption_mt ?? '',
                 ]]);
             @endphp
             <div class="form-field form-field-wide hidden datewise-entry-section" data-datewise-period>
                 <div class="datewise-entry-header">
                     <div>
                         <span class="label">Date-wise consumption</span>
-                        <small>Enter an effective date range and its consumption quantity.</small>
+                        <small>Enter an effective date range and the consumption for one day.</small>
                     </div>
                     @unless($editing)
                         <button class="btn-secondary datewise-add-button" type="button" data-add-datewise>
@@ -205,18 +216,20 @@ select[aria-invalid="true"] {
                         <div class="datewise-entry-row" data-datewise-row>
                             <div>
                                 <label class="label">Effective from</label>
-                                <input class="input" type="date" name="datewise_entries[{{ $index }}][from]"
-                                       value="{{ $row['from'] ?? '' }}" @unless($editing) min="{{ now()->toDateString() }}" @endunless data-datewise-from>
+                                <input class="input" type="text" inputmode="numeric" placeholder="DD-MM-YYYY"
+                                       pattern="\d{2}-\d{2}-\d{4}" maxlength="10" name="datewise_entries[{{ $index }}][from]"
+                                       value="{{ $displayDate($row['from'] ?? '') }}" readonly @unless($editing) data-min-date="{{ now()->toDateString() }}" @endunless data-datewise-from>
                             </div>
                             <div>
                                 <label class="label">Effective until</label>
-                                <input class="input" type="date" name="datewise_entries[{{ $index }}][until]"
-                                       value="{{ $row['until'] ?? '' }}" min="{{ $row['from'] ?? now()->toDateString() }}" data-datewise-until>
+                                <input class="input" type="text" inputmode="numeric" placeholder="DD-MM-YYYY"
+                                       pattern="\d{2}-\d{2}-\d{4}" maxlength="10" name="datewise_entries[{{ $index }}][until]"
+                                       value="{{ $displayDate($row['until'] ?? '') }}" readonly data-min-date="{{ $row['from'] ?? now()->toDateString() }}" data-datewise-until>
                             </div>
                             <div>
-                                <label class="label">Consumption quantity (MT)</label>
+                                <label class="label">Daily consumption (MT/day)</label>
                                 <input class="input" type="number" min="0.001" step="0.001"
-                                       name="datewise_entries[{{ $index }}][quantity_mt]" value="{{ $row['quantity_mt'] ?? '' }}" data-datewise-quantity>
+                                       name="datewise_entries[{{ $index }}][daily_consumption_mt]" value="{{ $row['daily_consumption_mt'] ?? '' }}" data-datewise-quantity>
                             </div>
                             @unless($editing)
                                 <button class="datewise-remove" type="button" title="Remove row" aria-label="Remove date-wise row" data-remove-datewise>×</button>
@@ -231,9 +244,14 @@ select[aria-invalid="true"] {
                 <input class="input"
                        id="consumption-monthly-date"
                        name="consumption_date"
-                       type="date"
-                       value="{{ old('consumption_date', $record?->consumption_date ?? now()->toDateString()) }}"
-                       @unless($editing) min="{{ now()->toDateString() }}" @endunless
+                       type="text"
+                       inputmode="numeric"
+                       placeholder="DD-MM-YYYY"
+                       pattern="\d{2}-\d{2}-\d{4}"
+                       maxlength="10"
+                       readonly
+                       value="{{ $displayDate(old('consumption_date', $record?->consumption_date ?? now()->toDateString())) }}"
+                       @unless($editing) data-min-date="{{ now()->toDateString() }}" @endunless
                        data-monthly-date>
                 <small class="mt-1 block text-xs text-slate-500">Select the effective date from the calendar.</small>
             </div>
@@ -246,18 +264,18 @@ select[aria-invalid="true"] {
 
             <div class="form-field" data-monthly-period>
                 <label class="label" for="consumption-quantity">
-                    Consumption quantity (MT)
+                    Daily consumption (MT/day)
                 </label>
 
                 <input class="input"
                        id="consumption-quantity"
-                       name="quantity_mt"
+                       name="daily_consumption_mt"
                        type="number"
                        min="0.001"
                        step="0.001"
-                       value="{{ old('quantity_mt', $record?->quantity_mt) }}"
+                       value="{{ old('daily_consumption_mt', $record?->daily_consumption_mt) }}"
                        required>
-                <small class="mt-1 block text-xs text-slate-500">Carries forward until a newer quantity is entered.</small>
+                <small class="mt-1 block text-xs text-slate-500">Consumption for one day; applied to each day in the planning period.</small>
             </div>
 
             @if ($editing)

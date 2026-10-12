@@ -68,12 +68,13 @@ class PlanningInputsTest extends TestCase
 
     public function test_plan_save_recalculates_and_retains_original_and_new_versions(): void
     {
-        $request = Request::create('/', 'PUT', ['daily_consumption_mt' => 10, 'day_count' => 2, 'version' => 1, 'remarks' => 'Updated']);
+        $request = Request::create('/', 'PUT', ['daily_consumption_mt' => 25, 'day_count' => 2, 'version' => 1, 'remarks' => 'Updated']);
         app(ProcurementController::class)->updateConsumptionPlan($request, 1);
         $row = DB::table('procurement_daily_consumptions')->first();
-        $this->assertEquals(20, $row->quantity_mt);
-        $this->assertEquals(-5, $row->projected_closing_mt);
-        $this->assertEquals(5, $row->extra_required_mt);
+        $this->assertEquals(25, $row->daily_consumption_mt);
+        $this->assertEquals(50, $row->quantity_mt);
+        $this->assertEquals(-35, $row->projected_closing_mt);
+        $this->assertEquals(35, $row->extra_required_mt);
         $this->assertSame(2, DB::table('procurement_plan_histories')->count());
         $original = json_decode(DB::table('procurement_plan_histories')->where('version', 1)->value('snapshot'), true);
         $this->assertEquals(310, $original['quantity_mt']);
@@ -103,7 +104,7 @@ class PlanningInputsTest extends TestCase
         app(ProcurementController::class)->updateConsumptionPlan(Request::create('/', 'PUT', ['daily_consumption_mt' => 10, 'day_count' => 2, 'version' => 1]), 1);
     }
 
-    public function test_consumption_can_be_removed_with_its_planning_history(): void
+    public function test_consumption_delete_deactivates_record_and_preserves_planning_history(): void
     {
         app(ProcurementController::class)->updateConsumptionPlan(
             Request::create('/', 'PUT', ['daily_consumption_mt' => 10, 'day_count' => 2, 'version' => 1]),
@@ -113,7 +114,7 @@ class PlanningInputsTest extends TestCase
 
         app(ProcurementController::class)->destroyConsumption(1);
 
-        $this->assertDatabaseMissing('procurement_daily_consumptions', ['id' => 1]);
-        $this->assertDatabaseCount('procurement_plan_histories', 0);
+        $this->assertDatabaseHas('procurement_daily_consumptions', ['id' => 1, 'status' => 0]);
+        $this->assertDatabaseCount('procurement_plan_histories', 2);
     }
 }

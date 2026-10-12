@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Jobs\SyncApiIntegration;
 use App\Models\ApiIntegration;
 use App\Models\ApiSyncRun;
 use Illuminate\Support\Str;
@@ -10,6 +9,8 @@ use RuntimeException;
 
 class ProcurementStockSyncService
 {
+    public function __construct(private readonly ApiSyncBackgroundRunner $backgroundRunner) {}
+
     // Both API screens and procurement use the same stock import job.
     public function sync(): ApiSyncRun
     {
@@ -19,7 +20,7 @@ class ProcurementStockSyncService
             'api_integration_id' => $integration->id, 'run_uuid' => (string) Str::uuid(),
             'status' => 'queued', 'started_at' => now(), 'triggered_by' => auth()->id(),
         ]);
-        SyncApiIntegration::dispatch($run->id)->onQueue('api-sync');
+        $this->backgroundRunner->dispatch($run->id);
 
         return $run;
     }

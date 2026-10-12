@@ -27,7 +27,7 @@
                         <span class="status-switch"><i></i></span><span class="status-toggle-label">{{ ucfirst($module->status) }}</span>
                     </button>
                 </form></td>
-                <td>{{ $module->created_at->format('d M Y') }}</td>
+                <td>{{ $module->created_at->format('d.m.Y') }}</td>
                 <td><div class="module-actions">
                     <button type="button" class="module-view" data-module-view
                         data-name="{{ $module->name }}"

@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\{Address, Company, Contact, Department, Designation, DistributorProfile, Education, EmployeeDepartment, Login, UserDocument, UserImage, UserProfile, UserType};
+use App\Models\{Address, Company, Contact, Department, Designation, DistributorProfile, DistributorSubsidiary, DistributorTier, DistributorType, Education, EmployeeDepartment, Login, UserDocument, UserImage, UserProfile, UserType};
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\DB;
@@ -46,7 +46,7 @@ class UserController extends Controller
 
     public function index(Request $request)
     {
-        Gate::authorize('users.view');
+        $this->authorizeResource('view');
         $definition = $this->definition();
         $query = UserProfile::with([
             'employmentDepartment', 'distributorProfile', 'userType', 'company', 'sittingLocation', 'designation.parentDesignation', 'department', 'reportingTo.designation',
@@ -54,26 +54,60 @@ class UserController extends Controller
             'createdBy.profile', 'updatedBy.profile',
         ]);
 
-        return view('users.index', [
+        if ($this->vendorMode()) {
+            $query->whereHas('userType', fn ($builder) => $builder->where('type_name', 'like', '%Distributor%'));
+        } else {
+            $query->whereHas('userType', fn ($builder) => $builder->where('type_name', 'like', '%Employee%'));
+        }
+
+        $records = $query->orderBy('id')->get();
+        $viewData = [
             'resource' => 'users',
             'definition' => $definition,
-            'records' => $query->orderBy('id')->get(),
+            'records' => $records,
             'sortableFields' => array_merge(['id'], array_keys($definition['fields'])),
             'options' => $this->options($definition),
             'dedicatedRoutes' => true,
             'formsInModal' => true,
-        ]);
+        ];
+        if ($this->vendorMode()) {
+            $viewData['customers'] = $records->map(function (UserProfile $distributor): array {
+                $phone = $distributor->contacts->first(fn ($contact) => in_array((string) $contact->contact_type, ['1', '2', '4'], true));
+                $email = $distributor->emailContacts->first();
+                $association = (string) ($distributor->distributorProfile?->company_association ?: 'APL + KPL');
+                return [
+                    'id' => $distributor->id, 'code' => (string) $distributor->code,
+                    'business' => $distributor->business_name ?: $distributor->distributorProfile?->business_name ?: $distributor->full_name,
+                    'contact' => $distributor->full_name, 'phone' => $phone?->contact_value ?: '—',
+                    'email' => $email?->contact_value ?: '—',
+                    'company' => $association === '1000' ? 'APL' : ($association === '5000' ? 'KPL' : $association),
+                    'category' => str($distributor->distributor_category ?: $distributor->distributorProfile?->distributor_category ?: '—')->headline()->toString(),
+                    'credit_limit' => (float) ($distributor->distributorProfile?->credit_limit ?: 0),
+                    'outstanding' => 0, 'status' => (bool) $distributor->status,
+                ];
+            });
+            $viewData += [
+                'directoryTitle' => 'Distributors', 'directoryEyebrow' => 'Master Control',
+                'directoryDescription' => 'Manage distributor accounts, contacts, commercial terms and pricing.',
+                'directoryCreatePermission' => 'distributors.create', 'directoryAddLabel' => 'Add Distributor',
+                'directoryModalTitle' => 'Create Distributor', 'directoryAllowDelete' => true,
+                'directoryDeletePermission' => 'distributors.delete',
+            ];
+        }
+
+        return view($this->vendorMode() ? 'vendors.index' : 'users.index', $viewData);
     }
 
     public function create()
     {
-        Gate::authorize('users.create');
+        $this->authorizeResource('create');
         return $this->form(new UserProfile());
     }
 
     public function show(UserProfile $user)
     {
-        Gate::authorize('users.view');
+        $this->authorizeResource('view');
+        $this->ensureVendor($user);
         $user->load([
             'company',
             'sittingLocation',
@@ -84,6 +118,8 @@ class UserController extends Controller
             'address',
             'contacts',
             'addresses',
+            'distributorSubsidiaries',
+            'distributorTargets',
             'education',
             'login.roles',
             'profileImage',
@@ -93,6 +129,24 @@ class UserController extends Controller
         ]);
 
         return view('users.show', compact('user'));
+    }
+
+    public function storeDistributorTargets(Request $request, UserProfile $user)
+    {
+        Gate::authorize('distributors.edit');
+        $this->ensureVendor($user);
+        $data = $request->validate([
+            'target_year' => ['required', 'integer', 'min:'.(now()->year - 10), 'max:'.(now()->year + 10)],
+            'yearly_target' => ['required', 'numeric', 'min:0.01', 'max:9999999999999999', 'regex:/^\d{1,16}(\.\d{1,2})?$/'],
+            'monthly_targets' => ['required', 'array', 'size:12'],
+            'monthly_targets.*' => ['required', 'numeric', 'min:0', 'max:9999999999999999', 'regex:/^\d{1,16}(\.\d{1,2})?$/'],
+        ]);
+        $this->validateDistributorTargetTotals($data);
+        $currency = $user->distributorProfile?->currency ?: 'INR';
+        DB::transaction(function () use ($user, $data, $currency): void {
+            $this->persistDistributorTargets($user, (int) $data['target_year'], $data['yearly_target'], $data['monthly_targets'], $currency);
+        });
+        return back()->with('success', 'Monthly and yearly distributor targets saved.')->withFragment('targets');
     }
 
     public function uploadProfileImage(Request $request, UserProfile $user)
@@ -135,10 +189,12 @@ class UserController extends Controller
 
     public function store(Request $request)
     {
-        Gate::authorize('users.create');
+        $this->authorizeResource('create');
+        $this->prepareVendorRequest($request);
+        if (! $this->vendorMode()) $request->merge(['type_code' => $this->employeeTypeCode()]);
         $data = $this->validated($request);
         $isDistributor = $this->isDistributorTypeCode($data['type_code']);
-        DB::transaction(function () use ($request, $data, $isDistributor) {
+        $userId = DB::transaction(function () use ($request, $data, $isDistributor) {
             $login = Login::create([
                 'username' => $data['username'],
                 'password' => $data['password'],
@@ -170,10 +226,21 @@ class UserController extends Controller
             $employmentData = Arr::only($data, ['company_id', 'sitting_location_id', 'department_id', 'designation_id', 'role_id', 'reporting_to_user_id', 'status']);
             $data['business_name'] = $isDistributor ? $data['distributor_business_name'] : null;
             $data['legal_business_name'] = $isDistributor ? $data['distributor_legal_business_name'] : null;
-            $userData = Arr::except($data, ['company_id', 'sitting_location_id', 'department_id', 'designation_id', 'role_id', 'reporting_to_user_id', 'distributor_business_name', 'distributor_legal_business_name', 'distributor_category', 'distributor_contact_person_user_id']);
+            $userData = Arr::except($data, [
+                'company_id', 'sitting_location_id', 'department_id', 'designation_id', 'role_id', 'reporting_to_user_id',
+                'distributor_business_name', 'distributor_legal_business_name', 'distributor_category', 'distributor_tier_code', 'distributor_contact_person_user_id',
+                'distributor_company_association', 'distributor_applicable_plants', 'distributor_material_groups',
+                'distributor_credit_limit', 'distributor_credit_period_days', 'distributor_payment_terms',
+                'distributor_price_list', 'distributor_currency', 'distributor_tax_classification',
+                'distributor_bank_name', 'distributor_account_holder_name', 'distributor_account_number',
+                'distributor_ifsc_code', 'distributor_bank_branch',
+                'target_year', 'yearly_target', 'monthly_targets',
+            ]);
             $userData['distributor_category'] = $isDistributor ? $data['distributor_category'] : null;
             $user = UserProfile::create($userData);
             $this->syncDistributorProfile($user, $data, $isDistributor);
+            $this->syncDistributorTargets($user, $data, $isDistributor);
+            $this->syncDistributorSubsidiaries($user, collect($request->input('subsidiaries', [])), $isDistributor);
             if (! $isDistributor) {
                 $this->syncEmploymentDepartment($user, $employmentData);
             }
@@ -246,20 +313,34 @@ class UserController extends Controller
                 $user->update(['education_id' => $education->id]);
             }
             $this->createAdditionalEducation($request, $user);
+
+            return $user->id;
         });
 
-        return redirect()->route('admin.users.index')->with('success', 'User created.');
+        $savedUser = UserProfile::with('distributorProfile')->find($userId);
+        if (! $savedUser || ($isDistributor && ! $savedUser->distributorProfile)) {
+            throw new \LogicException('The user transaction completed without a persisted distributor record.');
+        }
+
+        $message = $isDistributor
+            ? "Distributor created successfully (#{$savedUser->id})."
+            : "Employee created successfully (#{$savedUser->id}).";
+
+        return redirect()->route($this->vendorMode() ? 'admin.distributors.index' : 'admin.users.index')->with('success', $message);
     }
 
     public function edit(UserProfile $user)
     {
-        Gate::authorize('users.edit');
+        $this->authorizeResource('edit');
+        $this->ensureVendor($user);
         return $this->form($user);
     }
 
     public function update(Request $request, UserProfile $user)
     {
-        Gate::authorize('users.edit');
+        $this->authorizeResource('edit');
+        $this->ensureVendor($user);
+        $this->prepareVendorRequest($request);
         $data = $this->validated($request, $user);
         $isDistributor = $this->isDistributorTypeCode($data['type_code']);
         $login = $user->login ?: new Login(['created_by' => auth()->id()]);
@@ -275,10 +356,21 @@ class UserController extends Controller
         $employmentData = Arr::only($data, ['company_id', 'sitting_location_id', 'department_id', 'designation_id', 'role_id', 'reporting_to_user_id', 'status']);
         $data['business_name'] = $isDistributor ? $data['distributor_business_name'] : null;
         $data['legal_business_name'] = $isDistributor ? $data['distributor_legal_business_name'] : null;
-        $userData = Arr::except($data, ['company_id', 'sitting_location_id', 'department_id', 'designation_id', 'role_id', 'reporting_to_user_id', 'distributor_business_name', 'distributor_legal_business_name', 'distributor_category', 'distributor_contact_person_user_id']);
+        $userData = Arr::except($data, [
+            'company_id', 'sitting_location_id', 'department_id', 'designation_id', 'role_id', 'reporting_to_user_id',
+            'distributor_business_name', 'distributor_legal_business_name', 'distributor_category', 'distributor_tier_code', 'distributor_contact_person_user_id',
+            'distributor_company_association', 'distributor_applicable_plants', 'distributor_material_groups',
+            'distributor_credit_limit', 'distributor_credit_period_days', 'distributor_payment_terms',
+            'distributor_price_list', 'distributor_currency', 'distributor_tax_classification',
+            'distributor_bank_name', 'distributor_account_holder_name', 'distributor_account_number',
+            'distributor_ifsc_code', 'distributor_bank_branch',
+            'target_year', 'yearly_target', 'monthly_targets',
+        ]);
         $userData['distributor_category'] = $isDistributor ? $data['distributor_category'] : null;
         $user->update($userData);
         $this->syncDistributorProfile($user, $data, $isDistributor);
+        $this->syncDistributorTargets($user, $data, $isDistributor);
+        $this->syncDistributorSubsidiaries($user, collect($request->input('subsidiaries', [])), $isDistributor);
         if ($isDistributor) {
             $user->employmentDepartment?->delete();
         } else {
@@ -315,20 +407,21 @@ class UserController extends Controller
         }
         $this->createAdditionalEducation($request, $user);
 
-        return redirect()->route('admin.users.index')->with('success', 'User updated.');
+        return redirect()->route($this->vendorMode() ? 'admin.distributors.index' : 'admin.users.index')->with('success', $this->vendorMode() ? 'Distributor updated.' : 'Employee updated.');
     }
 
     public function destroy(UserProfile $user)
     {
-        Gate::authorize('users.delete');
+        $this->authorizeResource('delete');
+        $this->ensureVendor($user);
         $user->delete();
 
-        return back()->with('success', 'User deleted.');
+        return redirect()->route($this->vendorMode() ? 'admin.distributors.index' : 'admin.users.index')->with('success', $this->vendorMode() ? 'Distributor deleted.' : 'Employee deleted.');
     }
 
     public function bulkAction(Request $request)
     {
-        Gate::authorize('users.edit');
+        $this->authorizeResource('edit');
         $validated = $request->validate([
             'action' => ['required', Rule::in(['activate', 'deactivate'])],
             'user_ids' => ['required', 'array', 'min:1'],
@@ -337,22 +430,24 @@ class UserController extends Controller
 
         $currentProfileId = UserProfile::where('login_id', auth()->id())->value('id');
         $users = UserProfile::whereIn('id', $validated['user_ids'])
+            ->when($this->vendorMode(), fn ($query) => $query->whereHas('userType', fn ($builder) => $builder->where('type_name', 'like', '%Distributor%')))
             ->when($currentProfileId, fn ($query) => $query->whereKeyNot($currentProfileId))
             ->get();
         $status = $validated['action'] === 'activate' ? '1' : '0';
 
         DB::transaction(fn () => $users->each(function (UserProfile $user) use ($status): void {
             $user->update(['status' => $status, 'updated_by' => auth()->id()]);
+            $user->login?->update(['status' => $status, 'updated_by' => auth()->id()]);
             $user->employmentDepartment()->update(['status' => $status, 'updated_by' => auth()->id()]);
         }));
 
-        return back()->with('success', $users->count().' user(s) '.$validated['action'].'d.');
+        return back()->with('success', $users->count().' '.($this->vendorMode() ? 'distributor(s)' : 'employee(s)').' '.$validated['action'].'d.');
     }
 
     private function form(UserProfile $record)
     {
         if ($record->exists) {
-            $record->load(['employmentDepartment', 'distributorProfile', 'userType', 'login.roles', 'primaryEducation', 'contacts', 'addresses', 'education', 'documents']);
+            $record->load(['employmentDepartment', 'distributorProfile', 'distributorSubsidiaries', 'userType', 'login.roles', 'primaryEducation', 'contacts', 'addresses', 'education', 'documents']);
         }
         $definition = $this->definition();
         $options = $this->options($definition);
@@ -392,12 +487,72 @@ class UserController extends Controller
             'roles' => Role::orderBy('name')->get(['id', 'name']),
             'supplierOptions' => $supplierOptions,
             'materialGroupOptions' => $materialGroupOptions,
+            'distributorTypeOptions' => Schema::hasTable('tbl_distributor_types')
+                ? DistributorType::where('status', 1)->orderBy('name')->get(['code', 'name'])
+                    ->map(fn ($type) => ['value' => $type->code, 'label' => $type->name])->values()->all()
+                : [],
+            'distributorTierOptions' => Schema::hasTable('tbl_distributor_tiers')
+                ? DistributorTier::where('status', 1)->orderBy('minimum_annual_sales')->get(['code', 'name'])
+                    ->map(fn ($tier) => ['value' => $tier->code, 'label' => $tier->name])->values()->all()
+                : [],
             'supplierDocuments' => $record->exists
                 ? $record->documents->mapWithKeys(fn ($document) => [
                     $document->document_type => asset('storage/'.$document->file_path),
                 ])->all()
                 : [],
+            'vendorMode' => $this->vendorMode(),
+            'vendorTypeCode' => $this->distributorTypeCode(),
+            'vendorRoleId' => Role::where('name', 'Distributor')->where('guard_name', 'web')->value('id'),
+            'employeeTypeCode' => $this->employeeTypeCode(),
         ]);
+    }
+
+    private function vendorMode(): bool
+    {
+        return request()->routeIs('admin.distributors.*');
+    }
+
+    private function authorizeResource(string $action): void
+    {
+        Gate::authorize(($this->vendorMode() ? 'distributors' : 'users').'.'.$action);
+    }
+
+    private function distributorTypeCode(): ?string
+    {
+        return UserType::where('type_name', 'like', '%Distributor%')->value('type_code');
+    }
+
+    private function employeeTypeCode(): ?string
+    {
+        return UserType::where('type_name', 'like', '%Employee%')->value('type_code');
+    }
+
+    private function prepareVendorRequest(Request $request): void
+    {
+        if (! $this->vendorMode()) return;
+
+        $request->merge(array_filter([
+            'type_code' => $this->distributorTypeCode(),
+            'role_id' => Role::where('name', 'Distributor')->where('guard_name', 'web')->value('id'),
+            'distributor_material_groups' => Schema::hasTable('tbl_materials')
+                ? DB::table('tbl_materials')
+                    ->whereNotNull('matkl')
+                    ->where('matkl', '<>', '')
+                    ->distinct()
+                    ->orderBy('matkl')
+                    ->pluck('matkl')
+                    ->map(fn ($group) => (string) $group)
+                    ->values()
+                    ->all()
+                : [],
+        ], fn ($value) => $value !== null));
+    }
+
+    private function ensureVendor(UserProfile $user): void
+    {
+        if (! $this->vendorMode()) return;
+
+        abort_unless($this->isDistributorTypeCode((string) $user->type_code), 404);
     }
 
     private function options(array $definition): array
@@ -448,11 +603,12 @@ class UserController extends Controller
         $rules['last_name'] = ['required', 'string', 'max:100'];
         $rules['distributor_business_name'] = [$isDistributor ? 'required' : 'nullable', 'string', 'max:255'];
         $rules['distributor_legal_business_name'] = [$isDistributor ? 'required' : 'nullable', 'string', 'max:255'];
-        $rules['distributor_category'] = [$isDistributor ? 'required' : 'nullable', Rule::in(['regional', 'exclusive', 'stockist', 'national', 'other'])];
+        $rules['distributor_category'] = [$isDistributor ? 'required' : 'nullable', Rule::exists('tbl_distributor_types', 'code')->where('status', 1)];
+        $rules['distributor_tier_code'] = [$isDistributor ? 'required' : 'nullable', Rule::exists('tbl_distributor_tiers', 'code')->where('status', 1)];
         $rules['gst_number'] = [$isDistributor ? 'required' : 'nullable', 'string', 'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/'];
         $rules['pan_number'] = [$isDistributor ? 'required' : 'nullable', 'string', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]$/'];
         $rules['distributor_contact_person_user_id'] = ['nullable', 'integer', Rule::exists('tbl_users', 'id')->where('status', '1')];
-        $rules['distributor_company_association'] = [$isDistributor ? 'required' : 'nullable', 'string', 'max:30', 'exists:tbl_company,company_code'];
+        $rules['distributor_company_association'] = ['nullable', 'string', 'max:30', 'exists:tbl_company,company_code'];
         $rules['distributor_applicable_plants'] = ['nullable', 'array'];
         $rules['distributor_applicable_plants.*'] = ['integer', 'distinct', 'exists:tbl_company,id'];
         $rules['distributor_material_groups'] = ['nullable', 'array'];
@@ -465,10 +621,24 @@ class UserController extends Controller
         $rules['distributor_tax_classification'] = ['nullable', 'string', 'max:100'];
         $rules['distributor_bank_name'] = [$isDistributor ? 'required' : 'nullable', 'string', 'max:150'];
         $rules['distributor_account_holder_name'] = [$isDistributor ? 'required' : 'nullable', 'string', 'max:255'];
-        $rules['distributor_account_number'] = [$isDistributor ? 'required' : 'nullable', 'string', 'max:50'];
+        $rules['distributor_account_number'] = [$isDistributor ? 'required' : 'nullable', 'string', 'regex:/^[0-9]{6,35}$/'];
         $rules['distributor_ifsc_code'] = [$isDistributor ? 'required' : 'nullable', 'string', 'max:20', 'regex:/^[A-Za-z]{4}0[A-Za-z0-9]{6}$/'];
         $rules['distributor_bank_branch'] = ['nullable', 'string', 'max:150'];
         $rules['distributor_cancelled_cheque'] = ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'];
+        $rules['subsidiaries'] = ['nullable', 'array', 'max:50'];
+        $rules['subsidiaries.*.id'] = ['nullable', 'integer', 'exists:tbl_distributor_subsidiaries,id'];
+        $rules['subsidiaries.*.name'] = ['nullable', 'required_with:subsidiaries.*.phone,subsidiaries.*.email', 'string', 'max:255'];
+        $rules['subsidiaries.*.phone'] = ['nullable', 'required_with:subsidiaries.*.name,subsidiaries.*.email', 'string', 'max:30'];
+        $rules['subsidiaries.*.email'] = ['nullable', 'required_with:subsidiaries.*.name,subsidiaries.*.phone', 'email:rfc', 'max:255'];
+        $rules['subsidiaries.*.line_1'] = ['nullable', 'required_with:subsidiaries.*.name', 'string', 'max:255'];
+        $rules['subsidiaries.*.line_2'] = ['nullable', 'string', 'max:255'];
+        $rules['subsidiaries.*.city'] = ['nullable', 'required_with:subsidiaries.*.name', 'string', 'max:100'];
+        $rules['subsidiaries.*.district'] = ['nullable', 'string', 'max:100'];
+        $rules['subsidiaries.*.state'] = ['nullable', 'required_with:subsidiaries.*.name', 'string', 'max:100'];
+        $rules['subsidiaries.*.postal_code'] = ['nullable', 'required_with:subsidiaries.*.name', 'string', 'max:20'];
+        $rules['subsidiaries.*.country'] = ['nullable', 'required_with:subsidiaries.*.name', 'string', 'max:100'];
+        $rules['subsidiaries.*.latitude'] = ['nullable', 'numeric', 'between:-90,90'];
+        $rules['subsidiaries.*.longitude'] = ['nullable', 'numeric', 'between:-180,180'];
 
         $rules += [
             'contacts' => ['nullable', 'array'],
@@ -513,7 +683,65 @@ class UserController extends Controller
             'supplier_pan_document' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
         ];
 
-        $validated = $request->validate($rules);
+        if ($isDistributor) {
+            $rules['contacts'] = ['required', 'array', 'size:2'];
+            $rules['contacts.0.value'] = ['required', 'string', 'regex:/^\+?[0-9 ()-]{7,20}$/'];
+            $rules['contacts.1.value'] = ['required', 'email:rfc', 'max:255'];
+            $rules['addresses'] = ['required', 'array', 'min:1'];
+            $rules['addresses.0.type'] = ['required', 'in:1,2,3,4,5'];
+            $rules['addresses.0.line_1'] = ['required', 'string', 'max:255'];
+            $rules['addresses.0.city'] = ['required', 'string', 'max:100'];
+            $rules['addresses.0.state'] = ['required', 'string', 'max:100'];
+            $rules['addresses.0.postal_code'] = ['required', 'regex:/^[1-9][0-9]{5}$/'];
+            $rules['addresses.0.country'] = ['required', 'string', 'max:100'];
+            $rules['addresses.0.latitude'] = ['required', 'numeric', 'between:-90,90'];
+            $rules['addresses.0.longitude'] = ['required', 'numeric', 'between:-180,180'];
+        }
+
+        $messages = [
+            'gst_number.regex' => 'Enter a valid 15-character GSTIN, for example 09ABCDE1234F1Z5.',
+            'pan_number.regex' => 'Enter a valid PAN, for example ABCDE1234F.',
+            'contacts.size' => 'Enter exactly one primary phone number and one primary email address.',
+            'contacts.0.value.regex' => 'Enter a valid primary phone number using 7 to 20 digits.',
+            'contacts.1.value.email' => 'Enter a valid primary email address.',
+            'addresses.required' => 'Enter the distributor address.',
+            'addresses.0.postal_code.regex' => 'Enter a valid 6-digit Indian postal code.',
+            'addresses.0.latitude.required' => 'Select Get map location or Use current location to set the latitude.',
+            'addresses.0.longitude.required' => 'Select Get map location or Use current location to set the longitude.',
+            'distributor_account_number.regex' => 'Enter a valid bank account number containing 6 to 35 digits.',
+            'distributor_ifsc_code.regex' => 'Enter a valid 11-character IFSC code, for example SBIN0001234.',
+            'target_year.min' => 'Select a target year within the available 10-year range.',
+            'target_year.max' => 'Select a target year within the available 10-year range.',
+            'yearly_target.min' => 'The annual target must be greater than zero.',
+            'yearly_target.regex' => 'Enter the annual target with no more than two decimal places.',
+            'monthly_targets.size' => 'Enter targets for all 12 months.',
+            'monthly_targets.*.regex' => 'Enter monthly targets with no more than two decimal places.',
+            'password.confirmed' => 'The password confirmation does not match.',
+        ];
+        $attributes = [
+            'type_code' => 'user type',
+            'code' => $isDistributor ? 'distributor ID' : 'employee ID',
+            'distributor_business_name' => 'business name',
+            'distributor_legal_business_name' => 'legal business name',
+            'distributor_category' => 'distributor category',
+            'gst_number' => 'GSTIN',
+            'pan_number' => 'PAN number',
+            'contacts.0.value' => 'primary phone number',
+            'contacts.1.value' => 'primary email address',
+            'addresses.0.line_1' => 'address line 1',
+            'addresses.0.city' => 'city',
+            'addresses.0.state' => 'state',
+            'addresses.0.postal_code' => 'postal code',
+            'addresses.0.latitude' => 'latitude',
+            'addresses.0.longitude' => 'longitude',
+            'distributor_bank_name' => 'bank name',
+            'distributor_account_holder_name' => 'account holder name',
+            'distributor_account_number' => 'account number',
+            'distributor_ifsc_code' => 'IFSC code',
+            'role_id' => 'role',
+        ];
+
+        $validated = $request->validate($rules, $messages, $attributes);
         $isEmployee = $this->isEmployeeTypeCode((string) $request->input('type_code'));
         $addresses = collect($request->input('addresses', []))->filter(fn ($row) => filled($row['line_1'] ?? null));
         $contacts = collect($request->input('contacts', []))->filter(fn ($row) => filled($row['value'] ?? null));
@@ -541,7 +769,7 @@ class UserController extends Controller
             Arr::only($validated, array_keys($this->definition()['fields'])),
             Arr::only($validated, [
                 'username', 'password', 'role_id', 'distributor_business_name',
-                'distributor_legal_business_name', 'distributor_category',
+                'distributor_legal_business_name', 'distributor_category', 'distributor_tier_code',
                 'distributor_contact_person_user_id',
                 'distributor_company_association', 'distributor_applicable_plants',
                 'distributor_material_groups', 'distributor_credit_limit',
@@ -550,6 +778,7 @@ class UserController extends Controller
                 'distributor_tax_classification', 'distributor_bank_name',
                 'distributor_account_holder_name', 'distributor_account_number',
                 'distributor_ifsc_code', 'distributor_bank_branch',
+                'target_year', 'yearly_target', 'monthly_targets',
             ]),
         );
 
@@ -603,9 +832,8 @@ class UserController extends Controller
                 'business_name' => $data['distributor_business_name'],
                 'legal_business_name' => $data['distributor_legal_business_name'],
                 'distributor_category' => $data['distributor_category'],
+                'distributor_tier_code' => $data['distributor_tier_code'],
                 'contact_person_user_id' => null,
-                'company_association' => $data['distributor_company_association'],
-                'applicable_plants' => $data['distributor_applicable_plants'] ?? [],
                 'material_groups' => $data['distributor_material_groups'] ?? [],
                 'credit_limit' => $data['distributor_credit_limit'] ?? null,
                 'credit_period_days' => $data['distributor_credit_period_days'] ?? null,
@@ -633,6 +861,184 @@ class UserController extends Controller
                 'updated_by' => auth()->id(),
             ]);
         }
+    }
+
+    private function syncDistributorTargets(UserProfile $user, array $data, bool $isDistributor): void
+    {
+        if (! $isDistributor) {
+            $user->distributorTargets()->delete();
+            return;
+        }
+
+        // Preserve existing targets for partial or previously cached distributor
+        // forms that do not submit the Targets step.
+        if (! isset($data['target_year'], $data['yearly_target'], $data['monthly_targets'])
+            || ! is_array($data['monthly_targets'])) {
+            return;
+        }
+
+        $this->persistDistributorTargets(
+            $user,
+            (int) $data['target_year'],
+            $data['yearly_target'],
+            $data['monthly_targets'],
+            strtoupper($data['distributor_currency'] ?? 'INR'),
+        );
+    }
+
+    private function persistDistributorTargets(UserProfile $user, int $year, $yearlyTarget, array $monthlyTargets, string $currency): void
+    {
+        $periods = [0 => $yearlyTarget];
+        foreach (range(1, 12) as $month) {
+            $periods[$month] = $monthlyTargets[$month] ?? $monthlyTargets[(string) $month] ?? 0;
+        }
+
+        foreach ($periods as $month => $amount) {
+            DB::table('tbl_distributor_targets')->updateOrInsert(
+                ['user_id' => $user->id, 'target_year' => $year, 'target_month' => $month],
+                [
+                    'target_amount' => $amount,
+                    'currency' => $currency,
+                    'created_by' => auth()->id(),
+                    'updated_by' => auth()->id(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ],
+            );
+        }
+    }
+
+    private function validateDistributorTargetTotals(array $data): void
+    {
+        if (! isset($data['yearly_target'], $data['monthly_targets']) || ! is_array($data['monthly_targets'])) {
+            return;
+        }
+
+        $annualMinorUnits = (int) round((float) $data['yearly_target'] * 100);
+        $monthlyMinorUnits = collect(range(1, 12))->sum(
+            fn ($month) => (int) round((float) ($data['monthly_targets'][$month] ?? 0) * 100),
+        );
+
+        if ($monthlyMinorUnits !== $annualMinorUnits) {
+            throw ValidationException::withMessages([
+                'yearly_target' => 'The total of January to December must equal the annual target.',
+            ]);
+        }
+    }
+
+    private function syncDistributorSubsidiaries(UserProfile $user, $rows, bool $isDistributor): void
+    {
+        if (! $isDistributor) {
+            $this->deleteDistributorSubsidiaryOwners($user->distributorSubsidiaries()->get());
+            $user->distributorSubsidiaries()->delete();
+            return;
+        }
+
+        // The unified distributor location form submits subsidiary addresses
+        // through addresses[]. Preserve legacy subsidiary rows unless that
+        // dedicated payload is explicitly present.
+        if (! request()->has('subsidiaries')) {
+            return;
+        }
+
+        $savedIds = $rows
+            ->filter(fn ($row) => filled($row['name'] ?? null) || filled($row['phone'] ?? null) || filled($row['email'] ?? null))
+            ->map(function ($row) use ($user) {
+                $subsidiary = filled($row['id'] ?? null)
+                    ? $user->distributorSubsidiaries()->whereKey($row['id'])->firstOrFail()
+                    : new DistributorSubsidiary([
+                        'distributor_user_id' => $user->id,
+                        'created_by' => auth()->id(),
+                    ]);
+                $subsidiary->fill([
+                    'subsidiary_name' => trim((string) $row['name']),
+                    'phone_number' => trim((string) $row['phone']),
+                    'email' => mb_strtolower(trim((string) $row['email'])),
+                    'address_line_1' => trim((string) $row['line_1']),
+                    'address_line_2' => filled($row['line_2'] ?? null) ? trim((string) $row['line_2']) : null,
+                    'city' => trim((string) $row['city']),
+                    'district' => filled($row['district'] ?? null) ? trim((string) $row['district']) : null,
+                    'state' => trim((string) $row['state']),
+                    'postal_code' => trim((string) $row['postal_code']),
+                    'country' => trim((string) ($row['country'] ?? 'India')),
+                    'latitude' => filled($row['latitude'] ?? null) ? $row['latitude'] : null,
+                    'longitude' => filled($row['longitude'] ?? null) ? $row['longitude'] : null,
+                    'status' => true,
+                    'updated_by' => auth()->id(),
+                ]);
+
+                $address = $subsidiary->address_id
+                    ? Address::query()->whereKey($subsidiary->address_id)->where('employee_id', (string) $user->id)->first()
+                    : null;
+                $address ??= new Address(['created_by' => auth()->id(), 'status' => 1]);
+                $address->fill([
+                    'employee_id' => (string) $user->id,
+                    'company_code' => '0',
+                    'address_type' => '5',
+                    'is_current_permanent_same' => false,
+                    'address_line_1' => trim((string) $row['line_1']),
+                    'address_line_2' => filled($row['line_2'] ?? null) ? trim((string) $row['line_2']) : null,
+                    'city' => trim((string) $row['city']),
+                    'district' => filled($row['district'] ?? null) ? trim((string) $row['district']) : null,
+                    'state' => trim((string) $row['state']),
+                    'postal_code' => trim((string) $row['postal_code']),
+                    'country' => trim((string) ($row['country'] ?? 'India')),
+                    'latitude' => filled($row['latitude'] ?? null) ? $row['latitude'] : null,
+                    'longitude' => filled($row['longitude'] ?? null) ? $row['longitude'] : null,
+                    'updated_by' => auth()->id(),
+                ])->save();
+
+                $phone = $subsidiary->phone_contact_id
+                    ? Contact::query()->whereKey($subsidiary->phone_contact_id)->where('employee_id', (string) $user->id)->first()
+                    : null;
+                $phone ??= new Contact(['created_by' => auth()->id(), 'status' => 1]);
+                $phone->fill([
+                    'employee_id' => (string) $user->id,
+                    'company_code' => '0',
+                    'contact_type' => '1',
+                    'contact_value' => trim((string) $row['phone']),
+                    'is_primary' => false,
+                    'updated_by' => auth()->id(),
+                ])->save();
+
+                $email = $subsidiary->email_contact_id
+                    ? Contact::query()->whereKey($subsidiary->email_contact_id)->where('employee_id', (string) $user->id)->first()
+                    : null;
+                $email ??= new Contact(['created_by' => auth()->id(), 'status' => 1]);
+                $email->fill([
+                    'employee_id' => (string) $user->id,
+                    'company_code' => '0',
+                    'contact_type' => '3',
+                    'contact_value' => mb_strtolower(trim((string) $row['email'])),
+                    'is_primary' => false,
+                    'updated_by' => auth()->id(),
+                ])->save();
+
+                $subsidiary->address_id = $address->id;
+                $subsidiary->phone_contact_id = $phone->id;
+                $subsidiary->email_contact_id = $email->id;
+                $subsidiary->save();
+
+                return $subsidiary->id;
+            });
+
+        if ($savedIds->isEmpty()) {
+            $this->deleteDistributorSubsidiaryOwners($user->distributorSubsidiaries()->get());
+            $user->distributorSubsidiaries()->delete();
+        } else {
+            $removed = $user->distributorSubsidiaries()->whereNotIn('id', $savedIds)->get();
+            $this->deleteDistributorSubsidiaryOwners($removed);
+            $user->distributorSubsidiaries()->whereNotIn('id', $savedIds)->delete();
+        }
+    }
+
+    private function deleteDistributorSubsidiaryOwners($subsidiaries): void
+    {
+        Address::whereIn('id', $subsidiaries->pluck('address_id')->filter())->delete();
+        Contact::whereIn('id', $subsidiaries
+            ->flatMap(fn ($subsidiary) => [$subsidiary->phone_contact_id, $subsidiary->email_contact_id])
+            ->filter())
+            ->delete();
     }
 
     private function syncSupplierDocuments(Request $request, UserProfile $user): void
@@ -710,7 +1116,10 @@ class UserController extends Controller
         $primary = $saved->first();
         if ($primary && (int) $user->address_id !== (int) $primary->id) $user->update(['address_id' => $primary->id]);
         $savedIds = $saved->pluck('id')->filter()->all();
-        $user->addresses()->when($savedIds, fn ($query) => $query->whereNotIn('id', $savedIds))->delete();
+        $user->addresses()
+            ->where('address_type', '<>', '5')
+            ->when($savedIds, fn ($query) => $query->whereNotIn('id', $savedIds))
+            ->delete();
     }
 
     private function createAdditionalEducation(Request $request, UserProfile $user): void

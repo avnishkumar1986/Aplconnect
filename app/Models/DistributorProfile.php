@@ -9,7 +9,6 @@ class DistributorProfile extends Model
     protected $table = 'tbl_distributor_profiles';
     protected $guarded = ['id'];
     protected $casts = [
-        'applicable_plants' => 'array',
         'material_groups' => 'array',
         'credit_limit' => 'decimal:2',
     ];
@@ -22,5 +21,10 @@ class DistributorProfile extends Model
     public function contactPerson()
     {
         return $this->belongsTo(UserProfile::class, 'contact_person_user_id');
+    }
+
+    public function tier()
+    {
+        return $this->belongsTo(DistributorTier::class, 'distributor_tier_code', 'code');
     }
 }
