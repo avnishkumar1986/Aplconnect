@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -16,17 +17,23 @@ return new class extends Migration
             $now = now();
             $password = Hash::make('aplconnect@1234');
 
+            $userAttributes = [
+                'user_type' => 'USR5',
+                'first_name' => 'Super',
+                'last_name' => 'Admin',
+                'status' => true,
+                'updated_at' => $now,
+                'created_at' => $now,
+            ];
+
+            // Some upgraded installations no longer store the derived display name.
+            if (Schema::hasColumn('tbl_users', 'name')) {
+                $userAttributes['name'] = 'Super Admin';
+            }
+
             DB::table('tbl_users')->updateOrInsert(
                 ['unique_id' => self::UNIQUE_ID],
-                [
-                    'user_type' => 'USR5',
-                    'first_name' => 'Super',
-                    'last_name' => 'Admin',
-                    'name' => 'Super Admin',
-                    'status' => true,
-                    'updated_at' => $now,
-                    'created_at' => $now,
-                ],
+                $userAttributes,
             );
 
             $userId = DB::table('tbl_users')->where('unique_id', self::UNIQUE_ID)->value('id');
