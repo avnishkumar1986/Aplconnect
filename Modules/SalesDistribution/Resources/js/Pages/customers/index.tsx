@@ -36,7 +36,18 @@ import { FormEvent, Fragment, ReactNode, useEffect, useRef, useState } from 'rea
 
 type AdditionalContact = { contact_type: 'mobile' | 'email'; value: string };
 type AdditionalAddress = { address_line_1: string; city: string; state: string; district: string; postal_code: string };
-type Customer = Record<string, any> & { id: number; unique_id: string; name: string; status: boolean };
+type Customer = Record<string, unknown> & {
+    id: number;
+    unique_id: string;
+    name: string;
+    status: boolean;
+    plant_code?: string | null;
+    additional_contacts?: Array<{ contact_type?: string; email?: string | null; contact_number?: string | null }>;
+    additional_addresses?: Array<Partial<AdditionalAddress>>;
+    pending_sale?: Record<string, unknown>;
+    daily_sale?: Record<string, unknown>;
+    sales_summary?: Record<string, unknown>;
+};
 type Page = { data: Customer[]; current_page: number; last_page: number; total: number; from: number | null; to: number | null };
 type MonthNumber = '01' | '02' | '03' | '04' | '05' | '06' | '07' | '08' | '09' | '10' | '11' | '12';
 type MonthField = `month_${MonthNumber}_${'target' | 'actual'}`;
@@ -377,6 +388,8 @@ export default function Customers({
         form.setData(empty);
         form.clearErrors();
         setOpen(true);
+        // The Inertia form object is intentionally excluded because its identity changes after setData.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [openCreateForm, initialFormStep]);
     const showEdit = (customer: Customer) => {
         setEditing(customer);
@@ -388,7 +401,7 @@ export default function Customers({
                     if (key === 'additional_contacts')
                         return [
                             key,
-                            (customer.additional_contacts ?? []).map((contact: any) => ({
+                            (customer.additional_contacts ?? []).map((contact) => ({
                                 contact_type: contact.contact_type === 'email' ? 'email' : 'mobile',
                                 value: contact.email || contact.contact_number || '',
                             })),
@@ -396,7 +409,7 @@ export default function Customers({
                     if (key === 'additional_addresses')
                         return [
                             key,
-                            (customer.additional_addresses ?? []).map((address: any) => ({
+                            (customer.additional_addresses ?? []).map((address) => ({
                                 address_line_1: address.address_line_1 || '',
                                 city: address.city || '',
                                 state: address.state || '',
@@ -448,7 +461,8 @@ export default function Customers({
     const submit = (event: FormEvent) => {
         event.preventDefault();
         const options = { preserveScroll: true, onSuccess: () => setOpen(false) };
-        editing ? form.put(`/admin/sales-distribution/customers/${editing.id}`, options) : form.post('/admin/sales-distribution/customers', options);
+        if (editing) form.put(`/admin/sales-distribution/customers/${editing.id}`, options);
+        else form.post('/admin/sales-distribution/customers', options);
     };
     const load = (page = 1) =>
         router.get('/admin/sales-distribution/customers', { search, per_page: filters.per_page, page }, { preserveState: true, replace: true });
@@ -563,7 +577,7 @@ export default function Customers({
                             </Button>
                         </div>
                     )}
-                <div className="overflow-x-auto">
+                    <div className="overflow-x-auto">
                         <table className="w-full min-w-[1180px] table-fixed text-left text-sm">
                             <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[10px] font-bold tracking-[0.08em] text-slate-500 uppercase backdrop-blur">
                                 <tr>

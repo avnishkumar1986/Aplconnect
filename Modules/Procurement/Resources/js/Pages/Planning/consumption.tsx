@@ -120,11 +120,6 @@ const remainingDaysInSelectedMonth = (date: string) => {
     const day = Number(date.split('-')[2]);
     return day ? daysInSelectedMonth(date) - day + 1 : daysInSelectedMonth(date);
 };
-const formatDisplayDate = (date: string) => {
-    const [year, month, day] = date.split('-');
-    return year && month && day ? `${day}/${month}/${year}` : '';
-};
-const formatDate = (date: string) => formatDisplayDate(date) || date;
 const formatMt = (value: number | null, decimals = 3) =>
     value === null
         ? 'N/A'
@@ -778,7 +773,9 @@ export default function Procurement({
                                                                                         material: c.material,
                                                                                         month: c.consumption_date.slice(0, 7),
                                                                                     });
-                                                                                    router.get(`/admin/procurement/consumptions/auto/supply-plan?${params.toString()}`);
+                                                                                    router.get(
+                                                                                        `/admin/procurement/consumptions/auto/supply-plan?${params.toString()}`,
+                                                                                    );
                                                                                     return;
                                                                                 }
 
@@ -789,33 +786,31 @@ export default function Procurement({
                                                                             View
                                                                         </Button>
                                                                         {canManageConsumptions && c.planning_mode === 'manual' && (
-                                                                                <>
-                                                                                    <Button
-                                                                                        size="icon"
-                                                                                        variant="ghost"
-                                                                                        aria-label={`Edit consumption ${index + 1}`}
-                                                                                        title="Edit"
-                                                                                        className="text-brand-teal hover:bg-cyan-50"
-                                                                                        onClick={() => editConsumption(c)}
-                                                                                    >
-                                                                                        <Edit3 className="size-4" />
-                                                                                    </Button>
-                                                                                    <Button
-                                                                                        size="icon"
-                                                                                        variant="ghost"
-                                                                                        aria-label={`Move consumption ${index + 1} to inactive status`}
-                                                                                        title="Move to inactive"
-                                                                                        className="text-red-500 hover:bg-red-50 hover:text-red-600"
-                                                                                        onClick={() =>
-                                                                                            confirm(
-                                                                                                'Move this consumption plan to inactive status?',
-                                                                                            ) &&
-                                                                                            router.delete(`/admin/procurement/consumptions/${c.id}`)
-                                                                                        }
-                                                                                    >
-                                                                                        <Trash2 className="size-4" />
-                                                                                    </Button>
-                                                                                </>
+                                                                            <>
+                                                                                <Button
+                                                                                    size="icon"
+                                                                                    variant="ghost"
+                                                                                    aria-label={`Edit consumption ${index + 1}`}
+                                                                                    title="Edit"
+                                                                                    className="text-brand-teal hover:bg-cyan-50"
+                                                                                    onClick={() => editConsumption(c)}
+                                                                                >
+                                                                                    <Edit3 className="size-4" />
+                                                                                </Button>
+                                                                                <Button
+                                                                                    size="icon"
+                                                                                    variant="ghost"
+                                                                                    aria-label={`Move consumption ${index + 1} to inactive status`}
+                                                                                    title="Move to inactive"
+                                                                                    className="text-red-500 hover:bg-red-50 hover:text-red-600"
+                                                                                    onClick={() =>
+                                                                                        confirm('Move this consumption plan to inactive status?') &&
+                                                                                        router.delete(`/admin/procurement/consumptions/${c.id}`)
+                                                                                    }
+                                                                                >
+                                                                                    <Trash2 className="size-4" />
+                                                                                </Button>
+                                                                            </>
                                                                         )}
                                                                     </div>
                                                                 </div>

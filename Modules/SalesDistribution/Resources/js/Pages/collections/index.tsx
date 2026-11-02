@@ -1,5 +1,11 @@
 import InputError from '@/components/input-error';
-import { MasterDialogHeader, masterDialogBodyClass, masterDialogContentClass, masterDialogFooterClass, masterDialogFormClass } from '@/components/master/master-dialog-header';
+import {
+    MasterDialogHeader,
+    masterDialogBodyClass,
+    masterDialogContentClass,
+    masterDialogFooterClass,
+    masterDialogFormClass,
+} from '@/components/master/master-dialog-header';
 import { MasterPageHeader } from '@/components/master/master-page-header';
 import { StatusToggle } from '@/components/master/status-toggle';
 import { Button } from '@/components/ui/button';
@@ -89,7 +95,8 @@ export default function Collections({
     const submit = (e: FormEvent) => {
         e.preventDefault();
         const o = { preserveScroll: true, onSuccess: () => setOpen(false) };
-        editing ? form.put(`/admin/sales-distribution/collections/${editing.id}`, o) : form.post('/admin/sales-distribution/collections', o);
+        if (editing) form.put(`/admin/sales-distribution/collections/${editing.id}`, o);
+        else form.post('/admin/sales-distribution/collections', o);
     };
     const all = collections.data.length > 0 && collections.data.every((r) => selected.includes(r.id));
     return (

@@ -202,9 +202,8 @@ export default function ProductTargets({
     const submit = (event: FormEvent) => {
         event.preventDefault();
         const options = { preserveScroll: true, onSuccess: () => setOpen(false) };
-        editing
-            ? form.put(`/admin/sales-distribution/product-targets/${editing.id}`, options)
-            : form.post('/admin/sales-distribution/product-targets', options);
+        if (editing) form.put(`/admin/sales-distribution/product-targets/${editing.id}`, options);
+        else form.post('/admin/sales-distribution/product-targets', options);
     };
     const upload = (file: File) => {
         importForm.setData('file', file);

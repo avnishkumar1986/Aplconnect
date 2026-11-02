@@ -146,23 +146,6 @@ export function AppSidebar() {
         )?.label ?? null;
     const [openMasterGroup, setOpenMasterGroup] = useState<string | null>(null);
     const [masterControlOpen, setMasterControlOpen] = useState(() => savedOpen('sidebar.master-control', true));
-    const salesDistributionRouteActive = currentPath.startsWith('/admin/sales-distribution');
-    const salesMasterRouteActive =
-        currentPath.startsWith('/admin/sales-distribution/pending-sales') ||
-        currentPath.startsWith('/admin/sales-distribution/daily-sales') ||
-        currentPath.startsWith('/admin/sales-distribution/customer-sales-summary') ||
-        currentPath.startsWith('/admin/sales-distribution/collections');
-    const procurementRouteActive =
-        currentPath.startsWith('/admin/procurement') ||
-        currentPath.startsWith('/admin/api-integrations') ||
-        currentPath.startsWith('/admin/materials') ||
-        currentPath.startsWith('/admin/material-stocks');
-    const planningRouteActive =
-        currentPath === '/admin/procurement' ||
-        currentPath.startsWith('/admin/procurement/all-balance-sheet') ||
-        currentPath.startsWith('/admin/procurement/planning-decisions') ||
-        currentPath.startsWith('/admin/procurement/daily-consumption') ||
-        currentPath.startsWith('/admin/procurement/balance-sheet');
     const [salesDistributionOpen, setSalesDistributionOpen] = useState(() => savedOpen('sidebar.sales-distribution', false));
     const [salesMasterOpen, setSalesMasterOpen] = useState(false);
     const [procurementOpen, setProcurementOpen] = useState(() => savedOpen('sidebar.procurement', false));

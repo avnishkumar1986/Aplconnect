@@ -434,6 +434,7 @@ export default function ProcurementDashboard({
 
 type GraphItem = { label: string; value: number; description?: string; color?: string };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SectionHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
     return (
         <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-[0_4px_18px_rgba(15,23,42,0.04)] sm:px-5">
@@ -450,6 +451,7 @@ function SectionHeading({ eyebrow, title, description }: { eyebrow: string; titl
     );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const HorizontalComparisonGraph = memo(function HorizontalComparisonGraph({ items }: { items: GraphItem[] }) {
     const visibleItems = items.filter((item) => item.value > 0).slice(0, 10);
     if (!visibleItems.length)
@@ -525,6 +527,7 @@ const VerticalBarChart = memo(function VerticalBarChart({ items }: { items: Grap
     );
 });
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const RankedMaterialGraph = memo(function RankedMaterialGraph({ items }: { items: GraphItem[] }) {
     if (!items.length) return null;
     const visibleItems = items.slice(0, 10);

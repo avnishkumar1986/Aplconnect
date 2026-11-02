@@ -1,5 +1,11 @@
 import InputError from '@/components/input-error';
-import { MasterDialogHeader, masterDialogBodyClass, masterDialogContentClass, masterDialogFooterClass, masterDialogFormClass } from '@/components/master/master-dialog-header';
+import {
+    MasterDialogHeader,
+    masterDialogBodyClass,
+    masterDialogContentClass,
+    masterDialogFooterClass,
+    masterDialogFormClass,
+} from '@/components/master/master-dialog-header';
 import { MasterPageHeader } from '@/components/master/master-page-header';
 import { StatusToggle } from '@/components/master/status-toggle';
 import { Button } from '@/components/ui/button';
@@ -115,9 +121,8 @@ export default function PendingSales({
     const submit = (event: FormEvent) => {
         event.preventDefault();
         const options = { preserveScroll: true, onSuccess: () => setOpen(false) };
-        editing
-            ? form.put(`/admin/sales-distribution/pending-sales/${editing.id}`, options)
-            : form.post('/admin/sales-distribution/pending-sales', options);
+        if (editing) form.put(`/admin/sales-distribution/pending-sales/${editing.id}`, options);
+        else form.post('/admin/sales-distribution/pending-sales', options);
     };
     const runBulk = () => {
         if (!bulk || !selected.length || (bulk === 'delete' && !confirm(`Delete ${selected.length} records?`))) return;
@@ -191,7 +196,7 @@ export default function PendingSales({
                             </Button>
                         </div>
                     )}
-                <div className="overflow-x-auto">
+                    <div className="overflow-x-auto">
                         <table className="w-full min-w-[1250px] text-left text-sm">
                             <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-bold tracking-wider text-slate-500 uppercase">
                                 <tr>
