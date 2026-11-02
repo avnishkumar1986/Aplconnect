@@ -15,7 +15,7 @@ export default function ModuleComingSoon({ module }: { module: ModuleSummary }) 
             <Head title={`${module.name} · Coming Soon`} />
             <main className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(8,145,178,0.24),transparent_34%),radial-gradient(circle_at_85%_75%,rgba(249,115,22,0.16),transparent_30%)]" />
-                <div className="absolute inset-0 opacity-[0.035] [background-image:linear-gradient(rgba(255,255,255,.8)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.8)_1px,transparent_1px)] [background-size:42px_42px]" />
+                <div className="absolute inset-0 [background-image:linear-gradient(rgba(255,255,255,.8)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.8)_1px,transparent_1px)] [background-size:42px_42px] opacity-[0.035]" />
 
                 <header className="relative z-10 flex items-center justify-between border-b border-white/10 px-5 py-4 sm:px-8 lg:px-12">
                     <BrandLockup tone="dark" compact orientation="horizontal" />
@@ -33,11 +33,14 @@ export default function ModuleComingSoon({ module }: { module: ModuleSummary }) 
                             {module.name} is not currently active.
                         </h1>
                         <p className="mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-                            {module.description || 'This business module is being prepared for your workspace and will become available after activation.'}
+                            {module.description ||
+                                'This business module is being prepared for your workspace and will become available after activation.'}
                         </p>
                         <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                             <Button asChild size="lg" className="gap-2 bg-cyan-500 text-white hover:bg-cyan-400">
-                                <Link href="/">Return to dashboard <ArrowRight className="size-4" /></Link>
+                                <Link href="/">
+                                    Return to dashboard <ArrowRight className="size-4" />
+                                </Link>
                             </Button>
                             <div className="flex items-center gap-2 px-2 text-sm text-slate-400">
                                 <ShieldCheck className="size-4 text-emerald-400" /> Your existing access settings are preserved
@@ -51,7 +54,9 @@ export default function ModuleComingSoon({ module }: { module: ModuleSummary }) 
                                 <div className="flex size-14 items-center justify-center rounded-2xl bg-cyan-400/15 text-cyan-300 ring-1 ring-cyan-300/20">
                                     <Construction className="size-7" />
                                 </div>
-                                <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-bold tracking-wider text-amber-200 uppercase">Awaiting activation</span>
+                                <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-[10px] font-bold tracking-wider text-amber-200 uppercase">
+                                    Awaiting activation
+                                </span>
                             </div>
                             <h2 className="mt-7 text-xl font-bold">What happens next?</h2>
                             <div className="mt-5 space-y-4">
@@ -70,7 +75,8 @@ export default function ModuleComingSoon({ module }: { module: ModuleSummary }) 
                                 ))}
                             </div>
                             <div className="mt-6 flex items-center gap-2 border-t border-white/10 pt-5 text-xs text-slate-400">
-                                <Sparkles className="size-4 text-amber-300" /> Module reference: <span className="font-mono text-slate-300">{module.slug}</span>
+                                <Sparkles className="size-4 text-amber-300" /> Module reference:{' '}
+                                <span className="font-mono text-slate-300">{module.slug}</span>
                             </div>
                         </div>
                     </section>

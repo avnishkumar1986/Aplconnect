@@ -26,6 +26,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => RoleMiddleware::class,
             'role_or_permission' => RoleOrPermissionMiddleware::class,
             'module.active' => \App\Http\Middleware\EnsureModuleActive::class,
+            'api.integration' => \App\Http\Middleware\AuthorizeApiIntegrationAction::class,
         ]);
 
         $middleware->web(append: [

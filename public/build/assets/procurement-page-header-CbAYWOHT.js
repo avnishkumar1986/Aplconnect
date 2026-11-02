@@ -1,1 +1,0 @@
-import{j as e}from"./app-B1Mu2_YX.js";import{P as c}from"./project-page-header-Q_69QnLY.js";function f({title:r,subtitle:o,icon:s,meta:a,actions:t,embedded:i=!1,showEyebrow:m=!0,compact:n=!1}){return e.jsx(c,{eyebrow:m?"Procurement":void 0,title:r,subtitle:o,icon:e.jsx(s,{className:"size-5"}),meta:a,actions:t,embedded:i,compact:n})}export{f as P};

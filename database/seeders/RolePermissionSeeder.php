@@ -18,6 +18,18 @@ class RolePermissionSeeder extends Seeder
 
         $permissions = [
             'dashboard.view',
+            'group_overview.dashboard.view',
+            'sales_distribution.dashboard.view',
+            'sales_distribution.customers.view',
+            'sales_distribution.customers.manage',
+            'sales_distribution.pending_sales.view',
+            'sales_distribution.pending_sales.manage',
+            'sales_distribution.daily_sales.view',
+            'sales_distribution.daily_sales.manage',
+            'sales_distribution.customer_sales_summary.view',
+            'sales_distribution.customer_sales_summary.manage',
+            'sales_distribution.product_targets.view',
+            'sales_distribution.product_targets.manage',
             'users.view',
             'users.manage',
             'roles.view',

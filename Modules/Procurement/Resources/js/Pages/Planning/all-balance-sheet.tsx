@@ -435,24 +435,24 @@ export default function AllBalanceSheet({
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-3 p-6 text-sm sm:grid-cols-2 lg:grid-cols-3">
-                                {[
-                                    [`${summary.material_type} opening stock value`, `Σ ${summary.material_type} SAP stock value (₹)`],
-                                    [
-                                        `${consumptionSource} monthly consumption`,
-                                        planningMode === 'mixed'
-                                            ? 'SAP or Manual average/day × Days (according to each row)'
-                                            : `${consumptionSource} average/day × Days`,
-                                    ],
-                                    ['Purchase order (PO)', 'Planned buying + Imports'],
-                                    ['Availability', 'Opening stock (OS) + Purchase order (PO)'],
-                                    ['Closing stock', '(OS + PO) − Monthly consumption'],
-                                    ['Shortage', 'max(Monthly consumption − (OS + PO), 0)'],
-                                ].map(([label, formula]) => (
-                                    <div key={label} className="rounded-lg border border-cyan-100 bg-cyan-50/50 px-4 py-3">
-                                        <p className="font-semibold text-slate-700">{label}</p>
-                                        <p className="mt-1.5 font-mono text-xs text-cyan-800">{formula}</p>
-                                    </div>
-                                ))}
+                            {[
+                                [`${summary.material_type} opening stock value`, `Σ ${summary.material_type} SAP stock value (₹)`],
+                                [
+                                    `${consumptionSource} monthly consumption`,
+                                    planningMode === 'mixed'
+                                        ? 'SAP or Manual average/day × Days (according to each row)'
+                                        : `${consumptionSource} average/day × Days`,
+                                ],
+                                ['Purchase order (PO)', 'Planned buying + Imports'],
+                                ['Availability', 'Opening stock (OS) + Purchase order (PO)'],
+                                ['Closing stock', '(OS + PO) − Monthly consumption'],
+                                ['Shortage', 'max(Monthly consumption − (OS + PO), 0)'],
+                            ].map(([label, formula]) => (
+                                <div key={label} className="rounded-lg border border-cyan-100 bg-cyan-50/50 px-4 py-3">
+                                    <p className="font-semibold text-slate-700">{label}</p>
+                                    <p className="mt-1.5 font-mono text-xs text-cyan-800">{formula}</p>
+                                </div>
+                            ))}
                         </div>
                     </DialogContent>
                 </Dialog>
@@ -478,7 +478,7 @@ export default function AllBalanceSheet({
                             </Button>
                         </div>
                     </header>
-                    <div className={`min-h-[420px] overflow-auto ${expanded ? 'min-h-0 flex-1' : 'max-h-[calc(100vh-330px)]'}`}>
+                    <div className="overflow-x-auto">
                         <table className="w-full min-w-[1380px] border-separate border-spacing-0 text-xs">
                             <thead className="sticky top-0 z-20 bg-slate-100 text-[10px] font-bold tracking-wide text-slate-600 uppercase">
                                 <tr>
@@ -551,17 +551,13 @@ export default function AllBalanceSheet({
                                                 </td>
                                                 <td className="sticky left-[7.5rem] z-10 bg-white px-3 py-3 hover:bg-cyan-50">
                                                     <b className="block text-slate-900">{row.material_name}</b>
-                                                    <span className="font-mono text-[11px] text-slate-500">
-                                                        {row.material}
-                                                    </span>
+                                                    <span className="font-mono text-[11px] text-slate-500">{row.material}</span>
                                                 </td>
                                                 <td className="sticky left-[25.5rem] z-10 bg-white px-3 py-3 hover:bg-cyan-50">
                                                     <b>{row.plant_name}</b>
                                                     <span className="block text-[11px] text-slate-500">{row.plant_code}</span>
                                                 </td>
-                                                <td className="px-3 py-3 text-center font-semibold text-slate-600">
-                                                    {row.unit || '—'}
-                                                </td>
+                                                <td className="px-3 py-3 text-center font-semibold text-slate-600">{row.unit || '—'}</td>
                                                 <td className="px-3 py-3">
                                                     <span
                                                         className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ${row.planning_mode === 'auto' ? 'bg-cyan-50 text-cyan-700' : 'bg-amber-50 text-amber-700'}`}
@@ -569,11 +565,7 @@ export default function AllBalanceSheet({
                                                         {rowSource}
                                                     </span>
                                                 </td>
-                                                {[
-                                                    row.opening_stock,
-                                                    row.planned_po,
-                                                    row.daily_consumption,
-                                                ].map((value, index) => (
+                                                {[row.opening_stock, row.planned_po, row.daily_consumption].map((value, index) => (
                                                     <td key={index} className="px-3 py-3 text-right tabular-nums">
                                                         {number(value)}
                                                     </td>
@@ -620,7 +612,11 @@ export default function AllBalanceSheet({
                                                                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                                                                     {[
                                                                         ['Opening stock', row.opening_stock, null],
-                                                                        ['Opening stock value', row.opening_stock_value, money(row.opening_stock_value)],
+                                                                        [
+                                                                            'Opening stock value',
+                                                                            row.opening_stock_value,
+                                                                            money(row.opening_stock_value),
+                                                                        ],
                                                                         [`Average per day (${rowSource})`, row.daily_consumption, null],
                                                                         [
                                                                             `Monthly consumption (${rowSource})`,

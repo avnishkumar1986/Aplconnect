@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('user_id', 10);
             $table->string('address_type', 30)->default('primary')->index();
-            $table->string('address_line_1');
+            $table->string('address_line_1')->nullable();
             $table->string('address_line_2')->nullable();
             $table->string('city', 100)->nullable()->index();
             $table->string('state', 100)->nullable()->index();

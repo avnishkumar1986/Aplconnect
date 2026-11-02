@@ -4,7 +4,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $xamppPath = Split-Path -Parent (Split-Path -Parent $ProjectPath)
-$phpPath = Join-Path $xamppPath 'php\php.exe'
+$phpCommand = Get-Command php.exe -ErrorAction SilentlyContinue
+$phpPath = if ($null -ne $phpCommand) { $phpCommand.Source } else { Join-Path $xamppPath 'php\php.exe' }
 $mysqlStartPath = Join-Path $xamppPath 'mysql_start.bat'
 $npmPath = (Get-Command npm.cmd -ErrorAction Stop).Source
 $logPath = Join-Path $ProjectPath 'storage\logs\local-dev'
@@ -43,9 +44,9 @@ function Start-LoggedProcess(
     [string]$StderrFile
 ) {
     Write-SupervisorLog "Starting $Name"
-    Start-Process -FilePath $FilePath -ArgumentList $ArgumentList `
+    return Start-Process -FilePath $FilePath -ArgumentList $ArgumentList `
         -WorkingDirectory $ProjectPath -WindowStyle Hidden `
-        -RedirectStandardOutput $StdoutFile -RedirectStandardError $StderrFile | Out-Null
+        -RedirectStandardOutput $StdoutFile -RedirectStandardError $StderrFile -PassThru
 }
 
 try {
@@ -53,6 +54,7 @@ try {
     $mysqlLastAttempt = [datetime]::MinValue
     $laravelLastAttempt = [datetime]::MinValue
     $viteLastAttempt = [datetime]::MinValue
+    $queueProcess = $null
 
     while ($true) {
         $now = Get-Date
@@ -67,14 +69,20 @@ try {
             $laravelLastAttempt = $now
             Start-LoggedProcess 'Laravel' $phpPath `
                 @('artisan', 'serve', '--host=127.0.0.1', '--port=8001', '--no-reload') `
-                (Join-Path $logPath 'laravel.out.log') (Join-Path $logPath 'laravel.err.log')
+                (Join-Path $logPath 'laravel.out.log') (Join-Path $logPath 'laravel.err.log') | Out-Null
+        }
+
+        if ($null -eq $queueProcess -or $queueProcess.HasExited) {
+            $queueProcess = Start-LoggedProcess 'Laravel queue worker' $phpPath `
+                @('-d', 'max_execution_time=0', '-d', 'memory_limit=1024M', 'artisan', 'queue:work', '--queue=api-imports,default', '--sleep=1', '--tries=1', '--timeout=900', '--memory=768') `
+                (Join-Path $logPath 'queue.out.log') (Join-Path $logPath 'queue.err.log')
         }
 
         if (-not (Test-Port 5173) -and ($now - $viteLastAttempt).TotalSeconds -ge 10) {
             $viteLastAttempt = $now
             Start-LoggedProcess 'Vite' $npmPath `
                 @('run', 'dev', '--', '--host', '127.0.0.1', '--port', '5173', '--strictPort') `
-                (Join-Path $logPath 'vite.out.log') (Join-Path $logPath 'vite.err.log')
+                (Join-Path $logPath 'vite.out.log') (Join-Path $logPath 'vite.err.log') | Out-Null
         }
 
         Start-Sleep -Seconds 5

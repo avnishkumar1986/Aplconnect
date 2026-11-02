@@ -201,6 +201,7 @@ class UserMasterController extends Controller
         $users = User::query()
             ->leftJoin('tbl_usertype', 'tbl_usertype.uid', '=', 'tbl_users.user_type')
             ->select('tbl_users.*')
+            ->where('tbl_users.user_type', 'USR6')
             ->with([
                 'userType:id,uid,name', 'primaryEmail:id,user_id,email,is_verified,email_verified_at',
                 'login:id,user_id,username,last_login_at,status',
@@ -244,7 +245,10 @@ class UserMasterController extends Controller
             'roles' => Role::query()->where('status', true)->where('guard_name', 'web')->orderBy('name')->get(['id', 'name']),
             'filters' => ['search' => $search, 'per_page' => $perPage, 'sort' => $sort, 'direction' => $direction],
             'pageSizeOptions' => $pageSizeOptions,
-            'stats' => ['total' => User::query()->count(), 'active' => User::query()->where('status', true)->count()],
+            'stats' => [
+                'total' => User::query()->where('user_type', 'USR6')->count(),
+                'active' => User::query()->where('user_type', 'USR6')->where('status', true)->count(),
+            ],
             'canManage' => auth()->user()?->can('users.manage') ?? false,
         ]);
     }

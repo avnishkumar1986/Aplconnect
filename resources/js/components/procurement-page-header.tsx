@@ -8,6 +8,7 @@ export default function ProcurementPageHeader({
     icon: Icon,
     meta,
     actions,
+    backHref,
     embedded = false,
     showEyebrow = true,
     compact = false,
@@ -17,6 +18,7 @@ export default function ProcurementPageHeader({
     icon: LucideIcon;
     meta?: ReactNode;
     actions?: ReactNode;
+    backHref?: string;
     embedded?: boolean;
     showEyebrow?: boolean;
     compact?: boolean;
@@ -29,6 +31,7 @@ export default function ProcurementPageHeader({
             icon={<Icon className="size-5" />}
             meta={meta}
             actions={actions}
+            backHref={backHref}
             embedded={embedded}
             compact={compact}
         />

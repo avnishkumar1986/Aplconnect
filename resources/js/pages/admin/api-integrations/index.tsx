@@ -16,10 +16,12 @@ import AppLayout from "@/layouts/app-layout";
 import { Head, router, useForm } from "@inertiajs/react";
 import {
   Activity,
+  ChevronDown,
   Database,
   Edit3,
   FileText,
   Globe2,
+  Layers3,
   Play,
   Plus,
   Search,
@@ -33,11 +35,14 @@ type Log = {
   http_status: number | null;
   attempt: number;
   duration_ms: number | null;
+  records_received: number;
   message: string | null;
   created_at: string;
 };
 type Api = {
   id: number;
+  module_id: number | null;
+  module: ModuleOption | null;
   name: string;
   code: string;
   description: string | null;
@@ -49,6 +54,9 @@ type Api = {
   has_api_token: boolean;
   credentials_unreadable: boolean;
   target_table: string[] | null;
+  import_mode: "direct" | "chunk_all" | "chunk_one";
+  chunk_size: number;
+  chunk_offset: number;
   retries: number;
   retry_delay_seconds: number;
   timeout_seconds: number;
@@ -56,6 +64,11 @@ type Api = {
   last_run_status: string | null;
   last_run_at: string | null;
   logs: Log[];
+};
+type ModuleOption = {
+  id: number;
+  name: string;
+  slug: string;
 };
 type Page<T> = {
   data: T[];
@@ -68,6 +81,7 @@ type Page<T> = {
   next_page_url: string | null;
 };
 type FormData = {
+  module_id: string;
   name: string;
   code: string;
   description: string;
@@ -78,12 +92,16 @@ type FormData = {
   subscription_name: string;
   api_token: string;
   target_table: string;
+  import_mode: "direct" | "chunk_all" | "chunk_one";
+  chunk_size: number;
+  chunk_offset: number;
   retries: number;
   retry_delay_seconds: number;
   timeout_seconds: number;
   status: boolean;
 };
 const empty: FormData = {
+  module_id: "",
   name: "",
   code: "",
   description: "",
@@ -94,6 +112,9 @@ const empty: FormData = {
   subscription_name: "",
   api_token: "",
   target_table: "",
+  import_mode: "direct",
+  chunk_size: 100,
+  chunk_offset: 0,
   retries: 3,
   retry_delay_seconds: 10,
   timeout_seconds: 30,
@@ -103,26 +124,29 @@ export default function ApiIntegrations({
   integrations,
   filters,
   pageSizeOptions,
-  stats,
   canManage,
   manageableCodes,
   runnableCodes,
   credentialSourceCode,
+  modules,
 }: {
   integrations: Page<Api>;
   filters: { search: string; per_page: number };
   pageSizeOptions: number[];
-  stats: { total: number; active: number };
   canManage: boolean;
   manageableCodes: string[];
   runnableCodes: string[];
   credentialSourceCode: string;
+  modules: ModuleOption[];
 }) {
   const [search, setSearch] = useState(filters.search),
     [open, setOpen] = useState(false),
     [editing, setEditing] = useState<Api | null>(null),
     [logsFor, setLogsFor] = useState<Api | null>(null),
-    [expandedId, setExpandedId] = useState<number | null>(null);
+    [expandedId, setExpandedId] = useState<number | null>(null),
+    [openModule, setOpenModule] = useState<string | null>(
+      () => integrations.data[0]?.module?.name ?? "Unmapped integrations",
+    );
   const form = useForm<FormData>(empty);
   useEffect(() => {
     const hasActiveRun = integrations.data.some(
@@ -158,6 +182,7 @@ export default function ApiIntegrations({
   const edit = (a: Api) => {
     setEditing(a);
     form.setData({
+      module_id: a.module_id ? String(a.module_id) : "",
       name: a.name,
       code: a.code,
       description: a.description ?? "",
@@ -168,6 +193,9 @@ export default function ApiIntegrations({
       subscription_name: a.subscription_name ?? "",
       api_token: "",
       target_table: a.target_table?.join(", ") ?? "",
+      import_mode: a.import_mode ?? "direct",
+      chunk_size: a.chunk_size ?? 100,
+      chunk_offset: a.chunk_offset ?? 0,
       retries: a.retries,
       retry_delay_seconds: a.retry_delay_seconds,
       timeout_seconds: a.timeout_seconds,
@@ -176,6 +204,62 @@ export default function ApiIntegrations({
     form.clearErrors();
     setOpen(true);
   };
+  const groupedIntegrations = integrations.data.reduce<Record<string, Api[]>>(
+    (groups, integration) => {
+      const moduleName = integration.module?.name ?? "Unmapped integrations";
+      (groups[moduleName] ??= []).push(integration);
+
+      return groups;
+    },
+    {},
+  );
+  const tableRows = Object.entries(groupedIntegrations).flatMap(
+    ([moduleName, moduleIntegrations]) => {
+      const successful = moduleIntegrations.filter((api) =>
+        ["success", "completed"].includes(api.last_run_status ?? ""),
+      ).length;
+      const running = moduleIntegrations.filter((api) =>
+        ["queued", "running"].includes(api.last_run_status ?? ""),
+      ).length;
+      const failed = moduleIntegrations.filter(
+        (api) => api.last_run_status === "failed",
+      ).length;
+      const neverRun = moduleIntegrations.filter(
+        (api) => !api.last_run_status,
+      ).length;
+      const recordsReceived = moduleIntegrations.reduce(
+        (total, api) => total + (api.logs[0]?.records_received ?? 0),
+        0,
+      );
+      const lastSyncAt = moduleIntegrations
+        .map((api) => api.last_run_at)
+        .filter((value): value is string => Boolean(value))
+        .sort(
+          (left, right) => new Date(right).getTime() - new Date(left).getTime(),
+        )[0];
+
+      return [
+        {
+          kind: "module" as const,
+          moduleName,
+          count: moduleIntegrations.length,
+          successful,
+          running,
+          failed,
+          neverRun,
+          recordsReceived,
+          lastSyncAt,
+        },
+        ...(openModule === moduleName
+          ? moduleIntegrations.map((api) => ({
+              kind: "api" as const,
+              api,
+              index: integrations.data.findIndex((item) => item.id === api.id),
+            }))
+          : []),
+      ];
+    },
+  );
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const o = { preserveScroll: true, onSuccess: () => setOpen(false) };
@@ -209,13 +293,17 @@ export default function ApiIntegrations({
                   </div>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-                  <b className="text-slate-900">{stats.total}</b> total
-                </span>
-                <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                  <b>{stats.active}</b> active
-                </span>
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center lg:min-w-0 lg:flex-1 lg:justify-end">
+                <div className="relative w-full lg:max-w-3xl lg:flex-1">
+                  <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    className="h-10 border-slate-200 bg-white pl-9 shadow-none"
+                    value={search}
+                    placeholder="Search by name, code, endpoint, or table…"
+                    onChange={(e) => setSearch(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && load()}
+                  />
+                </div>
                 {canManage && (
                   <Button
                     onClick={create}
@@ -226,16 +314,6 @@ export default function ApiIntegrations({
                   </Button>
                 )}
               </div>
-            </div>
-            <div className="relative mt-4 w-full max-w-md">
-              <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                className="h-10 border-slate-200 bg-white pl-9 shadow-none"
-                value={search}
-                placeholder="Search by name, code, endpoint, or table…"
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && load()}
-              />
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -261,198 +339,266 @@ export default function ApiIntegrations({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {integrations.data.map((a, i) => (
-                  <Fragment key={a.id}>
-                    <tr
-                      className={`transition-colors hover:bg-cyan-50/35 ${expandedId === a.id ? "bg-cyan-50/25" : ""}`}
-                    >
-                      <td className="px-3 py-3">
-                        <RowExpandButton
-                          expanded={expandedId === a.id}
-                          label={`${expandedId === a.id ? "Collapse" : "Expand"} ${a.name}`}
-                          onClick={() =>
-                            setExpandedId(expandedId === a.id ? null : a.id)
-                          }
-                        />
-                      </td>
-                      <td className="px-4 py-4 font-medium text-slate-500">
-                        {(integrations.from ?? 1) + i}
-                      </td>
-                      <td className="px-4 py-4">
-                        <b className="text-slate-900">{a.name}</b>
-                        <span
-                          className="mt-0.5 block max-w-[260px] truncate text-xs text-slate-500"
-                          title={a.description || a.code}
-                        >
-                          {a.description || a.code}
-                        </span>
-                      </td>
-                      <td
-                        className="max-w-sm px-4 py-4 text-xs"
-                        title={a.endpoint ?? ""}
-                      >
-                        <code className="block max-w-[310px] truncate font-sans font-medium text-slate-700">
-                          {a.endpoint || "Not configured"}
-                        </code>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span
-                          className={`inline-flex rounded-md px-2 py-1 text-[10px] font-bold ring-1 ${a.api_type === "sap" ? "bg-sky-50 text-sky-700 ring-sky-200" : "bg-violet-50 text-violet-700 ring-violet-200"}`}
-                        >
-                          {a.api_type === "sap" ? "GET" : "POST"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 capitalize text-slate-700">
-                        <span className="font-medium">{a.api_type === "sap" ? "Basic" : "Subscription"}</span>
-                        <span
-                          className="mt-0.5 block max-w-[210px] truncate font-mono text-[10px] text-slate-400"
-                          title="Encrypted database credentials"
-                        >
-                          Encrypted in database
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-xs">
-                        <div className="flex max-w-[230px] flex-wrap gap-1">
-                          {a.target_table?.length ? (
-                            a.target_table.map((table) => (
-                              <span
-                                key={table}
-                                className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-600"
-                              >
-                                <Database className="size-3" />
-                                {table}
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-slate-400">
-                              Raw payload only
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-xs text-slate-600">
-                        <span className="font-semibold text-slate-800">
-                          {a.retries}
-                        </span>{" "}
-                        attempts
-                        <span className="block text-[10px] text-slate-400">
-                          {a.retry_delay_seconds}s delay
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <button
-                          disabled={
-                            !manageableCodes.includes(a.code.toLowerCase())
-                          }
-                          onClick={() =>
-                            router.patch(
-                              `/admin/api-integrations/${a.id}/status`,
-                              { active: !a.status },
-                              { preserveScroll: true },
-                            )
-                          }
-                          className="flex items-center gap-2 text-xs font-semibold disabled:cursor-default"
-                        >
-                          <span
-                            className={`relative h-5 w-9 rounded-full ring-1 ${a.status ? "bg-emerald-500 ring-emerald-500" : "bg-slate-300 ring-slate-300"}`}
-                          >
-                            <span
-                              className={`absolute top-0.5 size-4 rounded-full bg-white shadow ${a.status ? "left-[18px]" : "left-0.5"}`}
-                            />
-                          </span>
-                          <span
-                            className={
-                              a.status ? "text-emerald-700" : "text-slate-500"
+                {tableRows.map((row) => {
+                  if (row.kind === "module") {
+                    const isOpen = openModule === row.moduleName;
+
+                    return (
+                      <tr key={`module-${row.moduleName}`}>
+                        <td colSpan={10} className="bg-slate-100/90 p-0">
+                          <button
+                            type="button"
+                            aria-expanded={isOpen}
+                            onClick={() =>
+                              setOpenModule((current) =>
+                                current === row.moduleName
+                                  ? null
+                                  : row.moduleName,
+                              )
                             }
+                            className="flex w-full flex-wrap items-center gap-3 px-5 py-3 text-left transition hover:bg-cyan-50"
                           >
-                            {a.status ? "Active" : "Inactive"}
-                          </span>
-                        </button>
-                      </td>
-                      <td className="px-4 py-4 text-right">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold capitalize ${["success", "completed"].includes(a.last_run_status ?? "") ? "bg-emerald-50 text-emerald-700" : ["queued", "running"].includes(a.last_run_status ?? "") ? "bg-sky-50 text-sky-700" : a.last_run_status === "failed" ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500"}`}
-                        >
-                          {a.last_run_status?.replaceAll("_", " ") ||
-                            "Never run"}
-                        </span>
-                        {a.last_run_at && (
-                          <span className="mt-1 block whitespace-nowrap text-[10px] text-slate-400">
-                            {new Date(a.last_run_at).toLocaleString()}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                    {expandedId === a.id && (
-                      <tr>
-                        <td
-                          colSpan={10}
-                          className="border-l-2 border-cyan-500 bg-slate-50 px-16 py-4"
-                        >
-                          <div className="flex items-center gap-2">
-                            <div className="mr-auto">
-                              <span className="text-[10px] font-bold tracking-wide text-slate-500 uppercase">
-                                Integration actions
+                            <span className="grid size-8 place-items-center rounded-lg bg-white text-cyan-700 shadow-sm ring-1 ring-slate-200">
+                              <Layers3 className="size-4" />
+                            </span>
+                            <span className="font-bold text-slate-900">
+                              {row.moduleName}
+                            </span>
+                            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
+                              {row.count} {row.count === 1 ? "API" : "APIs"}
+                            </span>
+                            <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5 text-[10px] font-semibold">
+                              <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700 ring-1 ring-emerald-200">
+                                {row.successful} successful
                               </span>
-                              <p className="mt-0.5 text-[10px] text-slate-400">
-                                Run, inspect logs, or update this connection.
-                              </p>
-                            </div>
-                            {runnableCodes.includes(a.code.toLowerCase()) && (
-                              <Button
-                                onClick={() =>
-                                  router.post(
-                                    `/admin/api-integrations/${a.id}/run`,
-                                    {},
-                                    { preserveScroll: true },
-                                  )
-                                }
-                                className="bg-brand-teal text-white hover:bg-cyan-700"
-                              >
-                                <Play className="size-3.5" />
-                                Run
-                              </Button>
-                            )}
-                            <Button
-                              variant="outline"
-                              onClick={() => setLogsFor(a)}
-                            >
-                              <FileText className="size-3.5" />
-                              Logs
-                            </Button>
-                            {manageableCodes.includes(a.code.toLowerCase()) && (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  onClick={() => edit(a)}
+                              <span className="rounded-full bg-sky-50 px-2 py-1 text-sky-700 ring-1 ring-sky-200">
+                                {row.running} running
+                              </span>
+                              <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-700 ring-1 ring-rose-200">
+                                {row.failed} failed
+                              </span>
+                              <span className="rounded-full bg-slate-200 px-2 py-1 text-slate-600">
+                                {row.neverRun} never run
+                              </span>
+                              <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
+                                {row.recordsReceived.toLocaleString()} records
+                              </span>
+                              <span className="whitespace-nowrap px-1 text-slate-500">
+                                Last sync ·{" "}
+                                {row.lastSyncAt
+                                  ? new Date(row.lastSyncAt).toLocaleString()
+                                  : "Never"}
+                              </span>
+                            </span>
+                            <ChevronDown
+                              className={`size-4 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                            />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  const a = row.api;
+                  const i = row.index;
+
+                  return (
+                    <Fragment key={a.id}>
+                      <tr
+                        className={`transition-colors hover:bg-cyan-50/35 ${expandedId === a.id ? "bg-cyan-50/25" : ""}`}
+                      >
+                        <td className="px-3 py-3">
+                          <RowExpandButton
+                            expanded={expandedId === a.id}
+                            label={`${expandedId === a.id ? "Collapse" : "Expand"} ${a.name}`}
+                            onClick={() =>
+                              setExpandedId(expandedId === a.id ? null : a.id)
+                            }
+                          />
+                        </td>
+                        <td className="px-4 py-4 font-medium text-slate-500">
+                          {(integrations.from ?? 1) + i}
+                        </td>
+                        <td className="px-4 py-4">
+                          <b className="text-slate-900">{a.name}</b>
+                          <span
+                            className="mt-0.5 block max-w-[260px] truncate text-xs text-slate-500"
+                            title={a.description || a.code}
+                          >
+                            {a.description || a.code}
+                          </span>
+                        </td>
+                        <td
+                          className="max-w-sm px-4 py-4 text-xs"
+                          title={a.endpoint ?? ""}
+                        >
+                          <code className="block max-w-[310px] truncate font-sans font-medium text-slate-700">
+                            {a.endpoint || "Not configured"}
+                          </code>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span
+                            className={`inline-flex rounded-md px-2 py-1 text-[10px] font-bold ring-1 ${a.api_type === "sap" ? "bg-sky-50 text-sky-700 ring-sky-200" : "bg-violet-50 text-violet-700 ring-violet-200"}`}
+                          >
+                            {a.api_type === "sap" ? "GET" : "POST"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 capitalize text-slate-700">
+                          <span className="font-medium">
+                            {a.api_type === "sap" ? "Basic" : "Subscription"}
+                          </span>
+                          <span
+                            className="mt-0.5 block max-w-[210px] truncate font-mono text-[10px] text-slate-400"
+                            title="Encrypted database credentials"
+                          >
+                            Encrypted in database
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-xs">
+                          <div className="flex max-w-[230px] flex-wrap gap-1">
+                            {a.target_table?.length ? (
+                              a.target_table.map((table) => (
+                                <span
+                                  key={table}
+                                  className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-600"
                                 >
-                                  <Edit3 className="size-3.5" />
-                                  Edit
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  className="border-rose-200 text-rose-600"
-                                  onClick={() =>
-                                    window.confirm(
-                                      `Delete ${a.name} and its logs?`,
-                                    ) &&
-                                    router.delete(
-                                      `/admin/api-integrations/${a.id}`,
-                                      { preserveScroll: true },
-                                    )
-                                  }
-                                >
-                                  <Trash2 className="size-3.5" />
-                                  Delete
-                                </Button>
-                              </>
+                                  <Database className="size-3" />
+                                  {table}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-slate-400">
+                                Raw payload only
+                              </span>
                             )}
                           </div>
                         </td>
+                        <td className="px-4 py-4 text-xs text-slate-600">
+                          <span className="font-semibold text-slate-800">
+                            {a.retries}
+                          </span>{" "}
+                          attempts
+                          <span className="block text-[10px] text-slate-400">
+                            {a.retry_delay_seconds}s delay
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <button
+                            disabled={
+                              !manageableCodes.includes(a.code.toLowerCase())
+                            }
+                            onClick={() =>
+                              router.patch(
+                                `/admin/api-integrations/${a.id}/status`,
+                                { active: !a.status },
+                                { preserveScroll: true },
+                              )
+                            }
+                            className="flex items-center gap-2 text-xs font-semibold disabled:cursor-default"
+                          >
+                            <span
+                              className={`relative h-5 w-9 rounded-full ring-1 ${a.status ? "bg-emerald-500 ring-emerald-500" : "bg-slate-300 ring-slate-300"}`}
+                            >
+                              <span
+                                className={`absolute top-0.5 size-4 rounded-full bg-white shadow ${a.status ? "left-[18px]" : "left-0.5"}`}
+                              />
+                            </span>
+                            <span
+                              className={
+                                a.status ? "text-emerald-700" : "text-slate-500"
+                              }
+                            >
+                              {a.status ? "Active" : "Inactive"}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="px-4 py-4 text-right">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold capitalize ${["success", "completed"].includes(a.last_run_status ?? "") ? "bg-emerald-50 text-emerald-700" : ["queued", "running"].includes(a.last_run_status ?? "") ? "bg-sky-50 text-sky-700" : a.last_run_status === "failed" ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500"}`}
+                          >
+                            {a.last_run_status?.replaceAll("_", " ") ||
+                              "Never run"}
+                          </span>
+                          {a.last_run_at && (
+                            <span className="mt-1 block whitespace-nowrap text-[10px] text-slate-400">
+                              {new Date(a.last_run_at).toLocaleString()}
+                            </span>
+                          )}
+                        </td>
                       </tr>
-                    )}
-                  </Fragment>
-                ))}
+                      {expandedId === a.id && (
+                        <tr>
+                          <td
+                            colSpan={10}
+                            className="border-l-2 border-cyan-500 bg-slate-50 px-16 py-4"
+                          >
+                            <div className="flex items-center gap-2">
+                              <div className="mr-auto">
+                                <span className="text-[10px] font-bold tracking-wide text-slate-500 uppercase">
+                                  Integration actions
+                                </span>
+                                <p className="mt-0.5 text-[10px] text-slate-400">
+                                  Run, inspect logs, or update this connection.
+                                </p>
+                              </div>
+                              {runnableCodes.includes(a.code.toLowerCase()) && (
+                                <Button
+                                  onClick={() =>
+                                    router.post(
+                                      `/admin/api-integrations/${a.id}/run`,
+                                      {},
+                                      { preserveScroll: true },
+                                    )
+                                  }
+                                  className="bg-brand-teal text-white hover:bg-cyan-700"
+                                >
+                                  <Play className="size-3.5" />
+                                  Run
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline"
+                                onClick={() => setLogsFor(a)}
+                              >
+                                <FileText className="size-3.5" />
+                                Logs
+                              </Button>
+                              {manageableCodes.includes(
+                                a.code.toLowerCase(),
+                              ) && (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => edit(a)}
+                                  >
+                                    <Edit3 className="size-3.5" />
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    className="border-rose-200 text-rose-600"
+                                    onClick={() =>
+                                      window.confirm(
+                                        `Delete ${a.name} and its logs?`,
+                                      ) &&
+                                      router.delete(
+                                        `/admin/api-integrations/${a.id}`,
+                                        { preserveScroll: true },
+                                      )
+                                    }
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                    Delete
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -510,6 +656,25 @@ export default function ApiIntegrations({
           />
           <form onSubmit={submit}>
             <div className="grid gap-4 p-6 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <Field label="Module" error={form.errors.module_id}>
+                  <Select
+                    value={form.data.module_id}
+                    onValueChange={(value) => form.setData("module_id", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a module" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {modules.map((module) => (
+                        <SelectItem key={module.id} value={String(module.id)}>
+                          {module.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
               <Field label="Name" error={form.errors.name}>
                 <Input
                   value={form.data.name}
@@ -534,7 +699,9 @@ export default function ApiIntegrations({
               <Field label="API Type" error={form.errors.api_type}>
                 <Select
                   value={form.data.api_type}
-                  onValueChange={(value: "sap" | "external") => form.setData("api_type", value)}
+                  onValueChange={(value: "sap" | "external") =>
+                    form.setData("api_type", value)
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -547,7 +714,11 @@ export default function ApiIntegrations({
               </Field>
               <div className="sm:col-span-2">
                 <Field
-                  label={form.data.api_type === "external" ? "External API URL" : "SAP Endpoint"}
+                  label={
+                    form.data.api_type === "external"
+                      ? "External API URL"
+                      : "SAP Endpoint"
+                  }
                   error={form.errors.endpoint}
                 >
                   <Input
@@ -570,42 +741,66 @@ export default function ApiIntegrations({
               </div>
               {editing?.credentials_unreadable && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:col-span-2">
-                  The saved credential cannot be decrypted with the current application key. Enter the username and password or token again, then save this integration.
+                  The saved credential cannot be decrypted with the current
+                  application key. Enter the username and password or token
+                  again, then save this integration.
                 </div>
               )}
-              {form.data.api_type === "sap" && ["production", "quality"].includes(form.data.code) ? (
+              {form.data.api_type === "sap" &&
+              ["production", "quality"].includes(form.data.code) ? (
                 <>
-                  <Field label="API_AUTH_USERNAME" error={form.errors.credential_username}>
+                  <Field
+                    label="API_AUTH_USERNAME"
+                    error={form.errors.credential_username}
+                  >
                     <Input
                       autoComplete="off"
                       value={form.data.credential_username}
                       placeholder="API authentication username"
-                      onChange={(e) => form.setData("credential_username", e.target.value)}
+                      onChange={(e) =>
+                        form.setData("credential_username", e.target.value)
+                      }
                     />
                   </Field>
-                  <Field label="API_AUTH_PASSWORD" error={form.errors.credential_password}>
+                  <Field
+                    label="API_AUTH_PASSWORD"
+                    error={form.errors.credential_password}
+                  >
                     <Input
                       type="password"
                       autoComplete="new-password"
                       value={form.data.credential_password}
-                      placeholder={editing?.has_credential_password ? "•••••••••••• (saved)" : "API authentication password"}
-                      onChange={(e) => form.setData("credential_password", e.target.value)}
+                      placeholder={
+                        editing?.has_credential_password
+                          ? "•••••••••••• (saved)"
+                          : "API authentication password"
+                      }
+                      onChange={(e) =>
+                        form.setData("credential_password", e.target.value)
+                      }
                     />
-                    {editing?.has_credential_password && !form.data.credential_password && (
-                      <p className="mt-1 text-xs text-slate-500">
-                        Password is saved securely. Leave blank to keep it unchanged.
-                      </p>
-                    )}
+                    {editing?.has_credential_password &&
+                      !form.data.credential_password && (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Password is saved securely. Leave blank to keep it
+                          unchanged.
+                        </p>
+                      )}
                   </Field>
                 </>
               ) : form.data.api_type === "external" ? (
                 <>
-                  <Field label="Subscription Name" error={form.errors.subscription_name}>
+                  <Field
+                    label="Subscription Name"
+                    error={form.errors.subscription_name}
+                  >
                     <Input
                       autoComplete="off"
                       value={form.data.subscription_name}
                       placeholder="Subscription name"
-                      onChange={(e) => form.setData("subscription_name", e.target.value)}
+                      onChange={(e) =>
+                        form.setData("subscription_name", e.target.value)
+                      }
                     />
                   </Field>
                   <Field label="API Token" error={form.errors.api_token}>
@@ -613,12 +808,19 @@ export default function ApiIntegrations({
                       type="password"
                       autoComplete="new-password"
                       value={form.data.api_token}
-                      placeholder={editing?.has_api_token ? "•••••••••••• (saved)" : "API token"}
-                      onChange={(e) => form.setData("api_token", e.target.value)}
+                      placeholder={
+                        editing?.has_api_token
+                          ? "•••••••••••• (saved)"
+                          : "API token"
+                      }
+                      onChange={(e) =>
+                        form.setData("api_token", e.target.value)
+                      }
                     />
                     {editing?.has_api_token && !form.data.api_token && (
                       <p className="mt-1 text-xs text-slate-500">
-                        Token is saved securely. Leave blank to keep it unchanged.
+                        Token is saved securely. Leave blank to keep it
+                        unchanged.
                       </p>
                     )}
                   </Field>
@@ -633,6 +835,74 @@ export default function ApiIntegrations({
                   onChange={(e) => form.setData("target_table", e.target.value)}
                 />
               </Field>
+              <Field label="Import mode" error={form.errors.import_mode}>
+                <Select
+                  value={form.data.import_mode}
+                  onValueChange={(
+                    value: "direct" | "chunk_all" | "chunk_one",
+                  ) => form.setData("import_mode", value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="direct">
+                      Import all in one request
+                    </SelectItem>
+                    <SelectItem value="chunk_all">
+                      Import all automatically in chunks
+                    </SelectItem>
+                    <SelectItem value="chunk_one">
+                      Import one chunk only
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+              {form.data.import_mode !== "direct" && (
+                <>
+                  <Field label="Chunk size" error={form.errors.chunk_size}>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={form.data.chunk_size}
+                      onChange={(event) =>
+                        form.setData(
+                          "chunk_size",
+                          Math.max(
+                            1,
+                            Math.min(100, Number(event.target.value) || 1),
+                          ),
+                        )
+                      }
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Maximum 100 records per request.
+                    </p>
+                  </Field>
+                  <Field label="Start offset" error={form.errors.chunk_offset}>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={form.data.chunk_offset}
+                      onChange={(event) =>
+                        form.setData(
+                          "chunk_offset",
+                          Math.max(0, Number(event.target.value) || 0),
+                        )
+                      }
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Use 0 to start from the first record.
+                    </p>
+                  </Field>
+                  <div className="rounded-lg border border-cyan-100 bg-cyan-50 px-3 py-2 text-xs text-cyan-900 sm:col-span-2">
+                    {form.data.import_mode === "chunk_all"
+                      ? `Imports groups of ${form.data.chunk_size} from offset ${form.data.chunk_offset} and stops automatically after the final page.`
+                      : `Imports only one group starting at offset ${form.data.chunk_offset}.`}
+                  </div>
+                </>
+              )}
               <Field label="Retries">
                 <Input
                   type="number"
@@ -691,6 +961,27 @@ export default function ApiIntegrations({
         <DialogContent className="max-w-4xl p-0 sm:p-0 [&>button]:hidden">
           <div className="relative">
             <MasterDialogHeader title={`${logsFor?.name ?? ""} · Run logs`} />
+            {logsFor?.logs.length &&
+            manageableCodes.includes(logsFor.code.toLowerCase()) ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  window.confirm(
+                    `Permanently delete all ${logsFor.logs.length} run logs for ${logsFor.name}? This cannot be undone.`,
+                  ) &&
+                  router.delete(`/admin/api-integrations/${logsFor.id}/logs`, {
+                    preserveScroll: true,
+                    onSuccess: () => setLogsFor(null),
+                  })
+                }
+                className="absolute top-5 right-16 border-rose-300 bg-white/10 text-white hover:bg-rose-600 hover:text-white"
+              >
+                <Trash2 className="size-4" />
+                Clear all logs
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -714,6 +1005,10 @@ export default function ApiIntegrations({
                       "HTTP",
                       "Duration",
                       "Message",
+                      ...(logsFor &&
+                      manageableCodes.includes(logsFor.code.toLowerCase())
+                        ? ["Action"]
+                        : []),
                     ].map((h) => (
                       <th key={h} className="p-3">
                         {h}
@@ -736,6 +1031,32 @@ export default function ApiIntegrations({
                         {l.duration_ms ? `${l.duration_ms} ms` : "—"}
                       </td>
                       <td className="p-3">{l.message || "—"}</td>
+                      {logsFor &&
+                      manageableCodes.includes(logsFor.code.toLowerCase()) ? (
+                        <td className="p-3 text-right">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Permanently delete log"
+                            className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+                            onClick={() =>
+                              window.confirm(
+                                "Permanently delete this run log? This cannot be undone.",
+                              ) &&
+                              router.delete(
+                                `/admin/api-integrations/${logsFor.id}/logs/${l.id}`,
+                                {
+                                  preserveScroll: true,
+                                  onSuccess: () => setLogsFor(null),
+                                },
+                              )
+                            }
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>

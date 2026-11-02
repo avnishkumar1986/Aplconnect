@@ -43,19 +43,25 @@ const moduleName = (name: string) => {
 const titleCase = (value: string) => value.replace(/[._-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
 const categoryDetails = {
     general: { label: 'General Access', description: 'Core navigation and dashboard access', order: 1 },
-    procurement: { label: 'Procurement', description: 'Materials, inventory, purchasing, and planning operations', order: 2 },
-    api: { label: 'API Integrations', description: 'External data connections for materials, production, quality, stock, and vendors', order: 3 },
-    sales: { label: 'Sales', description: 'Customers, orders, dispatches, and sales operations', order: 4 },
-    support: { label: 'Support', description: 'Support tickets, internal notes, reporting, and service operations', order: 5 },
-    corporate_chat: { label: 'Corporate Chat', description: 'Internal messaging and collaboration controls', order: 6 },
-    administration: { label: 'Administration & Security', description: 'Users, roles, master data, and system controls', order: 7 },
+    group_overview: { label: 'Group Overview', description: 'Group-level dashboard access', order: 2 },
+    production_capacity: { label: 'Production & Capacity', description: 'Production output, utilization, and capacity performance', order: 3 },
+    procurement: { label: 'Procurement', description: 'Materials, inventory, purchasing, and planning operations', order: 4 },
+    api: { label: 'API Integrations', description: 'External data connections for materials, production, quality, stock, and vendors', order: 5 },
+    sales: { label: 'Sales', description: 'Customers, orders, dispatches, and sales operations', order: 6 },
+    sales_distribution: { label: 'Sales & Distribution', description: 'Sales planning, fulfilment, dispatch, and regional distribution', order: 7 },
+    support: { label: 'Support', description: 'Support tickets, internal notes, reporting, and service operations', order: 8 },
+    corporate_chat: { label: 'Corporate Chat', description: 'Internal messaging and collaboration controls', order: 9 },
+    administration: { label: 'Administration & Security', description: 'Users, roles, master data, and system controls', order: 10 },
 } as const;
 type PermissionCategory = keyof typeof categoryDetails;
 const permissionCategory = (module: string): PermissionCategory => {
     if (module === 'dashboard') return 'general';
+    if (module === 'group_overview' || module.startsWith('group_overview.')) return 'group_overview';
+    if (module === 'production_capacity' || module.startsWith('production_capacity.')) return 'production_capacity';
     if (module.split('.').includes('api')) return 'api';
     if (module.startsWith('procurement.')) return 'procurement';
     if (module.startsWith('sales.')) return 'sales';
+    if (module === 'sales_distribution' || module.startsWith('sales_distribution.')) return 'sales_distribution';
     if (module === 'support' || module.startsWith('support.')) return 'support';
     if (module === 'corporate_chat' || module.startsWith('corporate_chat.')) return 'corporate_chat';
     return 'administration';
@@ -63,7 +69,8 @@ const permissionCategory = (module: string): PermissionCategory => {
 const professionalModuleName = (module: string) => {
     const category = permissionCategory(module);
     const scopedName =
-        ['procurement', 'sales', 'support', 'corporate_chat'].includes(category) && module.includes('.')
+        ['group_overview', 'production_capacity', 'procurement', 'sales', 'sales_distribution', 'support', 'corporate_chat'].includes(category) &&
+        module.includes('.')
             ? module.split('.').slice(1).join('.')
             : category === 'api'
               ? module

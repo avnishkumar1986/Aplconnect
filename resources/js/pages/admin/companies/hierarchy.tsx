@@ -11,7 +11,6 @@ type CompanyNode = {
     name: string;
     type: number;
     parent_code: string | null;
-    gstin: string | null;
     active: boolean;
     children: CompanyNode[];
 };
@@ -154,7 +153,6 @@ function HierarchyNode({
                             </div>
                             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
                                 <span className="font-mono font-semibold text-slate-700">{node.code}</span>
-                                {node.gstin && <span>GSTIN: {node.gstin}</span>}
                             </div>
                         </div>
                     </div>
@@ -234,8 +232,15 @@ function HierarchyNode({
                     </Collapsible>
                 )}
             </div>
-            {node.children
+            {[...node.children]
                 .filter((child) => showChildren || child.type === 3)
+                .sort((left, right) => {
+                    if (left.type === 3 && right.type !== 3) return -1;
+                    if (left.type !== 3 && right.type === 3) return 1;
+
+                    const comparison = left.code.localeCompare(right.code, undefined, { numeric: true, sensitivity: 'base' });
+                    return comparison;
+                })
                 .map((child) => (
                     <HierarchyNode
                         key={child.id}

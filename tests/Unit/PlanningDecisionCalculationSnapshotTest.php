@@ -94,6 +94,20 @@ it('stores manual consumption with automatically picked stock and purchase order
         ->total_availability_mt->toEqual(10.0)->remaining_shortage_mt->toEqual(10.0);
 });
 
+it('stores a zero-consumption snapshot when a manual decision has no consumption plan', function (): void {
+    $decisionId = snapshotDecision('manual');
+
+    invokeSnapshot($decisionId);
+
+    $c = savedSnapshot();
+    expect($c)->planning_mode->toBe('manual')
+        ->daily_consumption_mt->toEqual(0.0)
+        ->total_required_mt->toEqual(0.0)
+        ->planned_buying_mt->toEqual(0.0)
+        ->opening_stock_mt->toEqual(5.0)
+        ->projected_closing_mt->toEqual(5.0);
+});
+
 function snapshotDecision(string $mode): int
 {
     return DB::table('procurement_planning_decisions')->insertGetId([

@@ -7,6 +7,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Validation\Rule;
 use RuntimeException;
 use Inertia\Inertia;
@@ -135,7 +136,9 @@ class PlanningDecisionController extends Controller
             $updated = DB::table('procurement_planning_decisions')->where('id', $decision)->whereNull('locked_at')->update([
                 'locked_at' => now(), 'locked_by' => $request->user()?->id, 'updated_at' => now(),
             ]);
-            abort_unless($updated === 1, 422, 'This planning decision is already locked.');
+            if ($updated !== 1) {
+                throw ValidationException::withMessages(['lock' => 'This planning decision is already locked.']);
+            }
             $this->persistLockedCalculation($decision);
         });
 
@@ -159,7 +162,9 @@ class PlanningDecisionController extends Controller
         $this->releaseExpiredLocks();
         $data = $this->validateBulkLock($request);
         $companyCode = DB::table('tbl_company')->where('id', $data['company_id'])->where('record_type', 1)->value('company_code');
-        abort_unless($companyCode, 422, 'The selected company is invalid.');
+        if (! $companyCode) {
+            throw ValidationException::withMessages(['lock' => 'The selected company is invalid.']);
+        }
         $selections = $this->validateSelections($companyCode, $data['selections']);
         $now = now();
         DB::table('procurement_planning_decisions')->insertOrIgnore(collect($selections)->map(fn (array $selection) => [
@@ -173,29 +178,50 @@ class PlanningDecisionController extends Controller
             'created_at' => $now,
             'updated_at' => $now,
         ])->all());
-        $count = DB::transaction(function () use ($data, $selections, $request): int {
-            $count = 0;
-            foreach ($selections as $selection) {
-                $decision = DB::table('procurement_planning_decisions')
-                    ->where('company_id', $data['company_id'])->where('plant_id', $selection['plant_id'])
-                    ->whereDate('planning_month', $data['planning_month'].'-01')->where('material', $selection['material'])
-                    ->whereNull('locked_at')->first(['id']);
-                if (! $decision) {
-                    continue;
-                }
-                $updated = DB::table('procurement_planning_decisions')->where('id', $decision->id)->whereNull('locked_at')->update([
-                    'locked_at' => now(), 'locked_by' => $request->user()?->id, 'updated_at' => now(),
-                ]);
-                if ($updated === 1) {
-                    $this->persistLockedCalculation((int) $decision->id);
-                    $count++;
-                }
+        $count = 0;
+        $alreadyLocked = 0;
+        foreach ($selections as $selection) {
+            $decision = DB::table('procurement_planning_decisions')
+                ->where('company_id', $data['company_id'])->where('plant_id', $selection['plant_id'])
+                ->whereDate('planning_month', $data['planning_month'].'-01')->where('material', $selection['material'])
+                ->first(['id', 'locked_at']);
+            if (! $decision) {
+                continue;
+            }
+            if ($decision->locked_at !== null) {
+                $alreadyLocked++;
+
+                continue;
             }
 
-            return $count;
-        });
+            $locked = DB::transaction(function () use ($decision, $request): bool {
+                $updated = DB::table('procurement_planning_decisions')
+                    ->where('id', $decision->id)
+                    ->whereNull('locked_at')
+                    ->update([
+                        'locked_at' => now(),
+                        'locked_by' => $request->user()?->id,
+                        'updated_at' => now(),
+                    ]);
+                if ($updated !== 1) {
+                    return false;
+                }
 
-        return back()->with('success', $count.' planning decision(s) locked.');
+                $this->persistLockedCalculation((int) $decision->id);
+
+                return true;
+            });
+            if ($locked) {
+                $count++;
+            } else {
+                $alreadyLocked++;
+            }
+        }
+
+        return back()->with(
+            'success',
+            $count.' planning decision(s) locked. '.$alreadyLocked.' already locked.',
+        );
     }
 
     public function unlockAll(Request $request): RedirectResponse
@@ -259,17 +285,13 @@ class PlanningDecisionController extends Controller
             ->where(fn ($query) => $query->whereNull('effective_to')->orWhereDate('effective_to', '>=', $month->toDateString()))
             ->orderByDesc('consumption_date')
             ->first();
-        if ($decision->planning_mode === 'manual' && ! $manualPlan) {
-            abort(422, 'A manual consumption plan is required before locking this decision.');
-        }
-
         $dailyConsumption = $decision->planning_mode === 'auto'
             ? $this->quantityToMt((float) ($stock?->auto_perday_consumption ?? 0), $materialUnit)
-            : (float) $manualPlan->quantity_mt;
+            : (float) ($manualPlan?->quantity_mt ?? 0);
         $isStartMonth = $manualPlan && CarbonImmutable::parse($manualPlan->consumption_date)->format('Y-m') === $month->format('Y-m');
         $days = $decision->planning_mode === 'auto'
             ? $monthEnd->day
-            : ($manualPlan->period_type === 'datewise' ? 1 : ($isStartMonth ? max(1, (int) $manualPlan->day_count) : $monthEnd->day));
+            : ($manualPlan?->period_type === 'datewise' ? 1 : ($isStartMonth ? max(1, (int) $manualPlan->day_count) : $monthEnd->day));
         $plannedBuying = (float) ($manualPlan?->planned_buying_mt ?? 0);
         $purchaseOrders = (float) DB::table('vw_procurement_purchase_receipts')
             ->where('status', 1)

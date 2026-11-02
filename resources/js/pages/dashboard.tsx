@@ -18,8 +18,6 @@ import {
     Pencil,
     RefreshCw,
     ShieldCheck,
-    ShoppingCart,
-    TrendingUp,
     Users,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -117,17 +115,13 @@ export default function Dashboard({
         createdAt: string;
     }>;
 }) {
-    const { auth, activeModules } = usePage<SharedData>().props;
+    const { auth } = usePage<SharedData>().props;
     const isSuperAdmin = auth.roles.some((role) => role.toLowerCase() === 'owner');
-    const procurementActive = activeModules.includes('procurement');
-    const salesActive = activeModules.includes('sales');
-    const canViewProcurement = isSuperAdmin || auth.permissions.some((permission) => permission.startsWith('procurement.'));
-    const canViewSales = isSuperAdmin || auth.permissions.some((permission) => permission.startsWith('sales.'));
     const [selectedUserType, setSelectedUserType] = useState('all');
     const [securityScanRunning, setSecurityScanRunning] = useState(false);
     const [selectedProductId, setSelectedProductId] = useState(1);
     const [salesPeriod, setSalesPeriod] = useState<'monthly' | 'yearly'>('monthly');
-    const [locationFilter, setLocationFilter] = useState<'plant' | 'ho'>('ho');
+    const [locationFilter, setLocationFilter] = useState<'plant' | 'ho'>('plant');
     const [mapCompanyFilter, setMapCompanyFilter] = useState(mapCompanies[0]?.code ?? '');
     const [activeOffers, setActiveOffers] = useState([
         {
@@ -417,37 +411,6 @@ export default function Dashboard({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Dashboard" />
             <div className="dashboard-shell mx-auto min-h-full w-full max-w-[1760px] flex-1 bg-[linear-gradient(180deg,#f7f9fc_0%,#eef2f7_100%)] p-3 sm:p-4 md:p-6 xl:p-7">
-                {((procurementActive && canViewProcurement) || (salesActive && canViewSales)) && (
-                    <nav className="mb-6 flex flex-wrap items-center gap-2.5" aria-label="Business modules">
-                        {procurementActive && canViewProcurement && (
-                            <Link
-                                href="/admin/procurement/dashboard"
-                                prefetch
-                                className="group inline-flex items-center gap-2 rounded-lg border border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-100 px-3.5 py-2 text-sm font-semibold text-cyan-950 shadow-sm transition-all hover:-translate-y-px hover:border-cyan-400 hover:shadow-md"
-                            >
-                                <span className="grid size-7 place-items-center rounded-md bg-gradient-to-br from-cyan-500 to-sky-600 text-white shadow-sm">
-                                    <ShoppingCart className="size-4 text-white" />
-                                </span>
-                                Procurement
-                                <ArrowRight className="size-3.5 text-cyan-700 transition-transform group-hover:translate-x-0.5" />
-                            </Link>
-                        )}
-                        {salesActive && canViewSales && (
-                            <Link
-                                href="/admin/sales"
-                                prefetch
-                                className="group inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-100 px-3.5 py-2 text-sm font-semibold text-emerald-950 shadow-sm transition-all hover:-translate-y-px hover:border-emerald-400 hover:shadow-md"
-                            >
-                                <span className="grid size-7 place-items-center rounded-md bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">
-                                    <TrendingUp className="size-4 text-white" />
-                                </span>
-                                Sales
-                                <ArrowRight className="size-3.5 text-emerald-700 transition-transform group-hover:translate-x-0.5" />
-                            </Link>
-                        )}
-                    </nav>
-                )}
-
                 <div className="grid items-start gap-6 xl:grid-cols-12">
                     <div className="min-w-0 space-y-6 xl:col-span-4">
                         <Card className="border-brand-teal/30 relative overflow-hidden rounded-2xl bg-[linear-gradient(110deg,#023047_0%,#075b6d_58%,#0e8294_100%)] text-white shadow-[0_18px_40px_-24px_rgba(2,48,71,0.85)]">
@@ -540,7 +503,11 @@ export default function Dashboard({
                                     <span className="absolute top-3 left-3 rounded-md bg-white/90 px-2 py-1 text-[9px] font-bold tracking-widest text-slate-500 shadow-sm">
                                         INDIA
                                     </span>
-                                    <div className="absolute top-3 right-3 z-30 inline-flex rounded-lg border border-cyan-200 bg-white/95 p-0.5 shadow-md backdrop-blur-sm" role="group" aria-label="Filter company locations">
+                                    <div
+                                        className="absolute top-3 right-3 z-30 inline-flex rounded-lg border border-cyan-200 bg-white/95 p-0.5 shadow-md backdrop-blur-sm"
+                                        role="group"
+                                        aria-label="Filter company locations"
+                                    >
                                         {(
                                             [
                                                 { value: 'plant', label: 'Plant', icon: Factory },
@@ -574,7 +541,7 @@ export default function Dashboard({
                                                 role="button"
                                                 tabIndex={0}
                                                 aria-label={location.name}
-                                                className="group/location absolute z-10 cursor-pointer -translate-x-1/2 -translate-y-1/2 outline-none hover:z-50 focus:z-50"
+                                                className="group/location absolute z-10 -translate-x-1/2 -translate-y-1/2 cursor-pointer outline-none hover:z-50 focus:z-50"
                                                 style={position}
                                             >
                                                 <span className="absolute top-1/2 left-1/2 size-7 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full bg-red-400/35" />
@@ -609,7 +576,8 @@ export default function Dashboard({
                                                 </span>
                                                 <p className="mt-2 text-xs font-bold text-slate-800">No active locations</p>
                                                 <p className="mt-1 text-[10px] leading-4 text-slate-500">
-                                                    No active {locationFilter === 'plant' ? 'plant' : 'head office'} with saved coordinates is available.
+                                                    No active {locationFilter === 'plant' ? 'plant' : 'head office'} with saved coordinates is
+                                                    available.
                                                 </p>
                                             </div>
                                         </div>

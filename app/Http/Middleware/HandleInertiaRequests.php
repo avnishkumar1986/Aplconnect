@@ -39,9 +39,38 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         [$message, $author] = str(Inspiring::quotes()->random())->explode('-');
+        $moduleNavigation = function (): array {
+            static $navigation;
+
+            if (isset($navigation)) {
+                return $navigation;
+            }
+
+            if (! Schema::hasTable('tbl_modules')) {
+                return $navigation = collect(['procurement', 'sales'])
+                    ->filter(fn (string $slug): bool => is_file(base_path('Modules/'.ucfirst($slug).'/routes/web.php')))
+                    ->mapWithKeys(fn (string $slug): array => [$slug => ['sidebar']])
+                    ->all();
+            }
+
+            return $navigation = ModulePackage::query()
+                ->where('status', true)
+                ->get(['slug', 'display_locations'])
+                ->filter(fn (ModulePackage $module): bool => match ($module->slug) {
+                    'group-overview' => is_file(base_path('Modules/GroupOverview/routes/web.php')),
+                    'procurement' => is_file(base_path('Modules/Procurement/routes/web.php')),
+                    'production-capacity' => is_file(base_path('Modules/ProductionCapacity/routes/web.php')),
+                    'sales' => is_file(base_path('Modules/Sales/routes/web.php')),
+                    'sales-distribution' => is_file(base_path('Modules/SalesDistribution/routes/web.php')),
+                    'corporate-chat' => is_file(base_path('Modules/CorporateChat/routes/web.php')),
+                    'support' => is_file(base_path('Modules/Support/routes/web.php')),
+                    default => true,
+                })
+                ->mapWithKeys(fn (ModulePackage $module): array => [$module->slug => $module->display_locations])
+                ->all();
+        };
 
         return array_merge(parent::share($request), [
-            ...parent::share($request),
             'name' => config('app.name'),
             'quote' => ['message' => trim($message), 'author' => trim($author)],
             'auth' => [
@@ -68,23 +97,8 @@ class HandleInertiaRequests extends Middleware
                 'perPage' => config('datatable.per_page'),
                 'pageSizeOptions' => config('datatable.page_size_options'),
             ],
-            'activeModules' => fn (): array => Schema::hasTable('tbl_modules')
-                ? ModulePackage::query()
-                    ->where('status', true)
-                    ->pluck('slug')
-                    ->filter(fn (string $slug): bool => match ($slug) {
-                        'procurement' => is_file(base_path('Modules/Procurement/routes/web.php')),
-                        'sales' => is_file(base_path('Modules/Sales/routes/web.php')),
-                        'corporate-chat' => is_file(base_path('Modules/CorporateChat/routes/web.php')),
-                        'support' => is_file(base_path('Modules/Support/routes/web.php')),
-                        default => true,
-                    })
-                    ->values()
-                    ->all()
-                : collect(['procurement', 'sales'])
-                    ->filter(fn (string $slug): bool => is_file(base_path('Modules/'.ucfirst($slug).'/routes/web.php')))
-                    ->values()
-                    ->all(),
+            'activeModules' => fn (): array => array_keys($moduleNavigation()),
+            'moduleDisplayLocations' => $moduleNavigation,
         ]);
     }
 
@@ -92,17 +106,21 @@ class HandleInertiaRequests extends Middleware
     {
         $user = $request->user();
 
-        if (! $user || $user->can('dashboard.view')) {
+        if (! $user) {
             return '/dashboard';
         }
 
         return match (true) {
+            $user->can('group_overview.dashboard.view') => '/admin/group-overview',
+            $user->can('production_capacity.dashboard.view') => '/admin/production-capacity',
+            $user->can('sales.overview.view') => '/admin/sales',
+            $user->can('sales_distribution.dashboard.view') => '/admin/sales-distribution',
             $user->can('procurement.dashboard.view') => '/admin/procurement/dashboard',
             $user->can('procurement.planning_decisions.view') => '/admin/procurement/planning-decisions',
             $user->can('procurement.materials_balance.view') => '/admin/procurement/all-balance-sheet',
             $user->can('procurement.consumption.view') => '/admin/procurement/daily-consumption',
             $user->can('procurement.rm_inventories.view') => '/admin/procurement/balance-sheet',
-            $user->can('sales.overview.view') => '/admin/sales',
+            $user->can('dashboard.view') => '/dashboard',
             $user->can('users.view') => '/admin/users',
             $user->can('roles.view') => '/admin/roles',
             default => '/settings/profile',

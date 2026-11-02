@@ -1,0 +1,1 @@
+import{j as e}from"./app-DOAS_B2b.js";import{P}from"./project-page-header-DotZ3U3W.js";function j({title:r,subtitle:o,icon:s,meta:a,actions:t,backHref:i,embedded:m=!1,showEyebrow:n=!0,compact:c=!1}){return e.jsx(P,{eyebrow:n?"Procurement":void 0,title:r,subtitle:o,icon:e.jsx(s,{className:"size-5"}),meta:a,actions:t,backHref:i,embedded:m,compact:c})}export{j as P};

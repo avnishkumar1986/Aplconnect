@@ -16,7 +16,6 @@ return new class extends Migration
             'procurement_daily_consumptions',
             'procurement_purchases',
             'procurement_balance_results',
-            'procurement_plan_histories',
             'procurement_mou_plans',
             'tbl_jobs',
             'tbl_failed_jobs',

@@ -240,11 +240,6 @@ export default function Companies({
             if (!form.data.company_name.trim()) form.setError('company_name', 'Company name is required.');
             if (!form.data.company_code.trim() || !form.data.company_name.trim()) return;
         }
-        if (step === 1) {
-            const required: Array<keyof Form> = ['address_line_1', 'city', 'state', 'postal_code', 'country'];
-            required.forEach((field) => !String(form.data[field]).trim() && form.setError(field, 'This field is required.'));
-            if (required.some((field) => !String(form.data[field]).trim())) return;
-        }
         setStep((current) => Math.min(2, current + 1));
     };
     const fetchLocation = async () => {
@@ -694,7 +689,7 @@ export default function Companies({
                                             <div className="sm:col-span-2">
                                                 <Input
                                                     autoFocus
-                                                    placeholder="Address line 1"
+                                                    placeholder="Address line 1 (optional)"
                                                     value={form.data.address_line_1}
                                                     onChange={(e) => form.setData('address_line_1', e.target.value)}
                                                 />
@@ -711,7 +706,7 @@ export default function Companies({
                                             <div>
                                                 <AsyncLocationSelect
                                                     type="state"
-                                                    placeholder="Select state"
+                                                    placeholder="Select state (optional)"
                                                     value={form.data.state}
                                                     onValueChange={(value) =>
                                                         form.setData({ ...form.data, state: value, district: '', city: '', postal_code: '' })
@@ -735,7 +730,7 @@ export default function Companies({
                                                 <AsyncLocationSelect
                                                     type="city"
                                                     state={form.data.state}
-                                                    placeholder="Select city"
+                                                    placeholder="Select city (optional)"
                                                     value={form.data.city}
                                                     onValueChange={(value) => form.setData({ ...form.data, city: value, postal_code: '' })}
                                                 />
@@ -745,7 +740,7 @@ export default function Companies({
                                                 <AsyncLocationSelect
                                                     type="pincode"
                                                     city={form.data.city}
-                                                    placeholder="Select postal code"
+                                                    placeholder="Select postal code (optional)"
                                                     value={form.data.postal_code}
                                                     onValueChange={(value) => form.setData('postal_code', value)}
                                                 />
@@ -753,7 +748,7 @@ export default function Companies({
                                             </div>
                                             <div>
                                                 <Input
-                                                    placeholder="Country"
+                                                    placeholder="Country (optional)"
                                                     value={form.data.country}
                                                     onChange={(e) => form.setData('country', e.target.value)}
                                                 />
@@ -855,7 +850,7 @@ export default function Companies({
                                         <div>
                                             <Input
                                                 type="tel"
-                                                placeholder="Contact number"
+                                                placeholder="Contact number (optional)"
                                                 value={form.data.contact_number}
                                                 onChange={(e) => form.setData('contact_number', e.target.value)}
                                             />

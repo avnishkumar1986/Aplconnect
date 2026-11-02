@@ -1067,7 +1067,7 @@ export default function BalanceSheet({
                                                                                     <div className="grid grid-cols-3 gap-px bg-slate-200">
                                                                                         {[
                                                                                             ['Rate', `${purchase.currency || '—'} ${Number(purchase.rate).toLocaleString('en-IN')}`],
-                                                                                            ['Amount', `${purchase.currency || '—'} ${Number(purchase.amount).toLocaleString('en-IN')}`],
+                                                                                            ['Total PO amount', `${purchase.currency || 'INR'} ${Number(purchase.amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`],
                                                                                             ['ETA', formatDateForDisplay(purchase.eta)],
                                                                                             ['Total quantity', `${Number(purchase.total_quantity_mt).toFixed(3)} MT`],
                                                                                             ['Reduced quantity', `${Number(purchase.reduced_quantity_mt).toFixed(3)} MT`],

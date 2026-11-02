@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 
 const root = resolve(import.meta.dirname, '..');
 const vite = resolve(root, 'node_modules', 'vite', 'bin', 'vite.js');
+const startQueueWorker = process.env.START_QUEUE_WORKER !== '0';
 const phpCandidates = [
     process.env.PHP_BINARY,
     'php',
@@ -91,7 +92,7 @@ if (!php) {
 
 const [laravelRunning, viteRunning] = await Promise.all([isPortListening(8001), isPortListening(5173)]);
 
-if (laravelRunning && viteRunning) {
+if (laravelRunning && viteRunning && !startQueueWorker) {
     console.log('Development services are already running.');
     console.log('Laravel: http://127.0.0.1:8001');
     console.log('Vite: http://127.0.0.1:5173');
@@ -102,9 +103,14 @@ if (laravelRunning) {
     console.log('Laravel is already running at http://127.0.0.1:8001');
 } else {
     console.log('Starting Laravel at http://127.0.0.1:8001');
-    console.log('Starting Laravel queue worker');
     start('Laravel', php, ['artisan', 'serve', '--host=127.0.0.1', '--port=8001', '--no-reload']);
+}
+
+if (startQueueWorker) {
+    console.log('Starting Laravel queue worker');
     start('Queue', php, ['-d', 'max_execution_time=0', 'artisan', 'queue:work', '--queue=api-imports,default', '--sleep=1', '--tries=1', '--timeout=600'], { restart: true });
+} else {
+    console.log('Laravel queue worker is disabled by START_QUEUE_WORKER=0.');
 }
 
 if (viteRunning) {

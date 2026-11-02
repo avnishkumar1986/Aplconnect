@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ModulePackage;
 use App\Models\ModuleUpload;
 use App\Services\Modules\ModuleRegistryService;
+use App\Services\Modules\ModulePermissionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ModuleController extends Controller
 {
+    public function __construct(private readonly ModulePermissionService $modulePermissions) {}
+
     public function index(Request $request, ModuleRegistryService $registry): Response
     {
         $options = config('datatable.page_size_options');
@@ -30,6 +33,11 @@ class ModuleController extends Controller
 
         $modules = ModulePackage::query()->withCount('uploads')->when($search !== '', fn ($query) => $query->where(fn ($query) => $query->where('name', 'like', "%{$search}%")->orWhere('slug', 'like', "%{$search}%")->orWhere('description', 'like', "%{$search}%")))->latest()->paginate($perPage)->withQueryString();
         $modules->getCollection()->transform(function (ModulePackage $module) use ($registry) {
+            $displayLocations = is_array($module->display_locations)
+                ? array_values(array_intersect($module->display_locations, ['sidebar', 'tabs', 'dropdown']))
+                : [];
+
+            $module->setAttribute('display_locations', $displayLocations ?: ['sidebar']);
             $module->setAttribute('installed', $registry->isInstalled($module));
             $module->setAttribute('service_details', $registry->details($module));
 
@@ -71,6 +79,7 @@ class ModuleController extends Controller
                     'manifest' => $this->manifest($file->getRealPath()), 'uploaded_by' => $request->user()?->id,
                 ]);
                 ModuleUpload::create(['module_id' => $module->id, 'version' => $module->version, 'package_path' => $path, 'original_filename' => $file->getClientOriginalName(), 'file_size' => $file->getSize(), 'checksum_sha256' => $checksum, 'uploaded_by' => $request->user()?->id, 'uploaded_at' => now()]);
+                $this->modulePermissions->sync($module);
             });
         } catch (\Throwable $exception) {
             Storage::disk('local')->delete($path);
@@ -82,8 +91,15 @@ class ModuleController extends Controller
 
     public function update(Request $request, ModulePackage $module): RedirectResponse
     {
-        $data = $request->validate(['name' => ['required', 'string', 'max:120'], 'description' => ['nullable', 'string', 'max:2000'], 'status' => ['required', 'boolean']]);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:120'],
+            'description' => ['nullable', 'string', 'max:2000'],
+            'status' => ['required', 'boolean'],
+            'display_locations' => ['required', 'array', 'min:1'],
+            'display_locations.*' => ['required', 'string', Rule::in(['sidebar', 'tabs', 'dropdown'])],
+        ]);
         $module->update($data);
+        $this->modulePermissions->sync($module->fresh());
 
         return back()->with('success', 'Module updated successfully.');
     }
@@ -91,6 +107,7 @@ class ModuleController extends Controller
     public function toggleStatus(Request $request, ModulePackage $module): RedirectResponse
     {
         $module->update(['status' => $request->boolean('active')]);
+        $this->modulePermissions->sync($module->fresh());
 
         return back()->with('success', 'Module status updated.');
     }
@@ -127,6 +144,8 @@ class ModuleController extends Controller
             'version' => ['required', 'string', 'max:40', 'regex:/^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?$/'],
             'package' => ['required', 'file', 'mimes:zip', 'max:102400'],
             'status' => ['required', 'boolean'],
+            'display_locations' => ['required', 'array', 'min:1'],
+            'display_locations.*' => ['required', 'string', Rule::in(['sidebar', 'tabs', 'dropdown'])],
         ]);
     }
 

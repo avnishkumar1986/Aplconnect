@@ -31,6 +31,7 @@ export interface SharedData {
     flash: { success?: string };
     datatable: { perPage: number; pageSizeOptions: number[] };
     activeModules: string[];
+    moduleDisplayLocations: Record<string, Array<'sidebar' | 'tabs' | 'dropdown'>>;
     notifications: {
         unreadCount: number;
         items: Array<{ id: string; title: string; message: string; ticketNumber?: string; read: boolean; createdAt: string }>;

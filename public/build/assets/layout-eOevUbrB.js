@@ -1,0 +1,1 @@
+import{j as s}from"./app-DOAS_B2b.js";function a({children:t}){return s.jsx("div",{className:"mx-auto w-full max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-7",children:s.jsx("section",{className:"min-w-0 space-y-6",children:t})})}export{a as S};

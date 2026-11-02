@@ -13,6 +13,7 @@ use App\Models\Permission;
 use App\Models\Role;
 use App\Services\Rbac\RoleService;
 use App\Services\Modules\ModuleRegistryService;
+use App\Services\Modules\ModulePermissionService;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -22,6 +23,7 @@ class RoleController extends Controller
     public function __construct(
         private readonly RoleService $roleService,
         private readonly ModuleRegistryService $moduleRegistry,
+        private readonly ModulePermissionService $modulePermissions,
     ) {}
 
     public function index(): Response
@@ -119,24 +121,21 @@ class RoleController extends Controller
 
     private function activePermissions(): \Illuminate\Support\Collection
     {
-        $modulePermissions = [
-            'procurement' => ['prefix' => 'procurement', 'routes' => 'Modules/Procurement/routes/web.php'],
-            'sales' => ['prefix' => 'sales', 'routes' => 'Modules/Sales/routes/web.php'],
-            'support' => ['prefix' => 'support', 'routes' => 'Modules/Support/routes/web.php'],
-            'corporate-chat' => ['prefix' => 'corporate_chat', 'routes' => 'Modules/CorporateChat/routes/web.php'],
-        ];
-        $activeModuleSlugs = ModulePackage::query()->where('status', true)->get()
-            ->filter(fn (ModulePackage $module): bool => $this->moduleRegistry->isInstalled($module))
-            ->pluck('slug')->all();
+        $modules = ModulePackage::query()->get();
+        $activeModuleSlugs = $modules
+            ->filter(fn (ModulePackage $module): bool => $module->status && $this->moduleRegistry->isInstalled($module))
+            ->pluck('slug')
+            ->all();
 
         $permissions = Permission::query()
             ->where('guard_name', 'web')
             ->where('status', true);
 
-        foreach ($modulePermissions as $slug => $module) {
-            $active = in_array($slug, $activeModuleSlugs, true) && is_file(base_path($module['routes']));
-            if (! $active) {
-                $permissions->where('name', 'not like', $module['prefix'].'.%');
+        foreach ($modules as $module) {
+            if (! in_array($module->slug, $activeModuleSlugs, true)) {
+                $prefix = $this->modulePermissions->prefix($module->slug);
+                $permissions->where('name', '<>', $prefix)
+                    ->where('name', 'not like', $prefix.'.%');
             }
         }
 

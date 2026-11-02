@@ -183,7 +183,7 @@ type PaginatedUsers = {
 };
 type Filters = { search: string; per_page: number; sort: string; direction: 'asc' | 'desc' };
 
-const breadcrumbs: BreadcrumbItem[] = [{ title: 'User Master', href: '/admin/user-master' }];
+const breadcrumbs: BreadcrumbItem[] = [{ title: 'Employee', href: '/admin/user-master' }];
 const formSteps = ['Personal & employment', 'Contact', 'Address & map', 'Education', 'Banking', 'Login'] as const;
 const educationLevels = [
     'Secondary (10th)',
@@ -753,11 +753,11 @@ export default function UserMaster({
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="User Master" />
+            <Head title="Employee" />
             <div className="mx-auto w-full max-w-[1680px] space-y-4 p-3 md:p-5 lg:p-6">
                 <MasterPageHeader
-                    title="User Master"
-                    description={`${stats.total} users · ${stats.active} active`}
+                    title="Employee Master"
+                    description={`${stats.total} employees · ${stats.active} active`}
                     icon={<Users className="size-5" />}
                     action={
                         canManage && (
@@ -767,7 +767,7 @@ export default function UserMaster({
                                     onClick={openCreate}
                                     className="h-9 shrink-0 bg-orange-500 px-4 font-semibold text-white shadow-sm hover:bg-orange-600"
                                 >
-                                    <Plus className="size-4" /> Add user
+                                    <Plus className="size-4" /> Add employee
                                 </Button>
                             </div>
                         )

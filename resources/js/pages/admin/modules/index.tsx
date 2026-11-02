@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import { Head, router, useForm } from '@inertiajs/react';
-import { Boxes, Download, Eye, Plus, Search, Trash2, UploadCloud } from 'lucide-react';
+import { Boxes, Download, Eye, Pencil, Plus, Search, Trash2, UploadCloud } from 'lucide-react';
 import { FormEventHandler, useCallback, useEffect, useState } from 'react';
 
 type Module = {
@@ -33,6 +33,7 @@ type Module = {
     } | null;
     installed: boolean;
     status: boolean;
+    display_locations: DisplayLocation[];
     uploads_count: number;
     created_at: string;
 };
@@ -47,8 +48,32 @@ type Page = {
     prev_page_url: string | null;
     next_page_url: string | null;
 };
-type UploadForm = { name: string; slug: string; description: string; version: string; package: File | null; status: boolean };
-const blank: UploadForm = { name: '', slug: '', description: '', version: '1.0.0', package: null, status: true };
+type DisplayLocation = 'sidebar' | 'tabs' | 'dropdown';
+type UploadForm = {
+    name: string;
+    slug: string;
+    description: string;
+    version: string;
+    package: File | null;
+    status: boolean;
+    display_locations: DisplayLocation[];
+};
+type EditForm = { name: string; description: string; status: boolean; display_locations: DisplayLocation[] };
+const blank: UploadForm = { name: '', slug: '', description: '', version: '1.0.0', package: null, status: true, display_locations: ['sidebar'] };
+const displayLocationOptions: Array<{ value: DisplayLocation; label: string }> = [
+    { value: 'sidebar', label: 'Sidebar' },
+    { value: 'tabs', label: 'Tabs' },
+    { value: 'dropdown', label: 'Dropdown' },
+];
+const displayLocations = (value: unknown): DisplayLocation[] => {
+    if (!Array.isArray(value)) return ['sidebar'];
+
+    const locations = value.filter((location): location is DisplayLocation =>
+        displayLocationOptions.some((option) => option.value === location),
+    );
+
+    return locations.length ? locations : ['sidebar'];
+};
 const size = (bytes: number) =>
     bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
 
@@ -67,8 +92,12 @@ export default function Modules({
 }) {
     const [search, setSearch] = useState(filters.search),
         [uploadOpen, setUploadOpen] = useState(false),
-        [viewing, setViewing] = useState<Module | null>(null);
+        [viewing, setViewing] = useState<Module | null>(null),
+        [editing, setEditing] = useState<Module | null>(null);
     const form = useForm<UploadForm>(blank);
+    const editForm = useForm<EditForm>({ name: '', description: '', status: true, display_locations: ['sidebar'] });
+    const toggleLocation = (locations: DisplayLocation[], location: DisplayLocation) =>
+        locations.includes(location) ? locations.filter((item) => item !== location) : [...locations, location];
     const load = useCallback(
         (q = search, per = filters.per_page) =>
             router.get('/admin/modules', { search: q.trim(), per_page: per }, { preserveState: true, replace: true }),
@@ -88,6 +117,14 @@ export default function Modules({
                 setUploadOpen(false);
                 form.reset();
             },
+        });
+    };
+    const submitEdit: FormEventHandler = (e) => {
+        e.preventDefault();
+        if (!editing) return;
+        editForm.put(`/admin/modules/${editing.id}`, {
+            preserveScroll: true,
+            onSuccess: () => setEditing(null),
         });
     };
     return (
@@ -138,6 +175,7 @@ export default function Modules({
                                     <th className="px-5 py-4">Version</th>
                                     <th className="px-5 py-4">Source</th>
                                     <th className="px-5 py-4">Module Location</th>
+                                    <th className="px-5 py-4">Display location</th>
                                     <th className="px-5 py-4">Status</th>
                                     <th className="px-5 py-4 text-right">Action</th>
                                 </tr>
@@ -148,6 +186,18 @@ export default function Modules({
                                         <td className="px-5 py-4">
                                             <div className="font-bold">{module.name}</div>
                                             <div className="mt-1 text-xs text-slate-500">{module.description || 'Application module.'}</div>
+                                        </td>
+                                        <td className="px-5 py-4">
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {displayLocations(module.display_locations).map((location) => (
+                                                    <span
+                                                        key={location}
+                                                        className="rounded-full bg-cyan-50 px-2 py-1 text-[10px] font-bold text-cyan-700 capitalize"
+                                                    >
+                                                        {location}
+                                                    </span>
+                                                ))}
+                                            </div>
                                         </td>
                                         <td className="px-5 py-4">
                                             <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700">
@@ -191,6 +241,24 @@ export default function Modules({
                                                 <Button size="sm" variant="outline" onClick={() => setViewing(module)}>
                                                     <Eye className="size-4" /> View
                                                 </Button>
+                                                {canManage && (
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => {
+                                                            editForm.setData({
+                                                                name: module.name,
+                                                                description: module.description ?? '',
+                                                                status: module.status,
+                                                                display_locations: displayLocations(module.display_locations),
+                                                            });
+                                                            editForm.clearErrors();
+                                                            setEditing(module);
+                                                        }}
+                                                    >
+                                                        <Pencil className="size-4" /> Edit
+                                                    </Button>
+                                                )}
                                                 {canManage && module.source !== 'service' && (
                                                     <Button
                                                         size="icon"
@@ -304,6 +372,28 @@ export default function Modules({
                                 />
                                 <InputError message={form.errors.description} />
                             </div>
+                            <fieldset className="sm:col-span-2">
+                                <legend className="mb-2 text-sm font-semibold text-slate-800">Display location *</legend>
+                                <div className="grid gap-2 sm:grid-cols-3">
+                                    {displayLocationOptions.map((option) => (
+                                        <label
+                                            key={option.value}
+                                            className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-medium hover:bg-slate-50"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={form.data.display_locations.includes(option.value)}
+                                                onChange={() =>
+                                                    form.setData('display_locations', toggleLocation(form.data.display_locations, option.value))
+                                                }
+                                                className="size-4 accent-cyan-700"
+                                            />
+                                            {option.label}
+                                        </label>
+                                    ))}
+                                </div>
+                                <InputError message={form.errors.display_locations} />
+                            </fieldset>
                             <p className="text-xs text-slate-500 sm:col-span-2">
                                 Upload a ZIP package up to 100 MB. Include an optional module.json file in the ZIP root for manifest metadata.
                             </p>
@@ -317,6 +407,62 @@ export default function Modules({
                             </Button>
                         </DialogFooter>
                     </form>
+                </DialogContent>
+            </Dialog>
+            <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
+                <DialogContent className="max-w-[680px] overflow-hidden rounded-2xl bg-white p-0 sm:p-0">
+                    {editing && (
+                        <form onSubmit={submitEdit}>
+                            <MasterDialogHeader title={`Edit ${editing.name}`} />
+                            <div className="grid gap-4 p-6">
+                                <div>
+                                    <Input value={editForm.data.name} onChange={(e) => editForm.setData('name', e.target.value)} />
+                                    <InputError message={editForm.errors.name} />
+                                </div>
+                                <div>
+                                    <Textarea
+                                        value={editForm.data.description}
+                                        onChange={(e) => editForm.setData('description', e.target.value)}
+                                        placeholder="Module description"
+                                    />
+                                    <InputError message={editForm.errors.description} />
+                                </div>
+                                <fieldset>
+                                    <legend className="mb-2 text-sm font-semibold text-slate-800">Display location *</legend>
+                                    <div className="grid gap-2 sm:grid-cols-3">
+                                        {displayLocationOptions.map((option) => (
+                                            <label
+                                                key={option.value}
+                                                className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-2.5 text-sm font-medium hover:bg-slate-50"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={editForm.data.display_locations.includes(option.value)}
+                                                    onChange={() =>
+                                                        editForm.setData(
+                                                            'display_locations',
+                                                            toggleLocation(editForm.data.display_locations, option.value),
+                                                        )
+                                                    }
+                                                    className="size-4 accent-cyan-700"
+                                                />
+                                                {option.label}
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <InputError message={editForm.errors.display_locations} />
+                                </fieldset>
+                            </div>
+                            <DialogFooter className="border-t bg-slate-50 px-6 py-4">
+                                <Button type="button" variant="outline" onClick={() => setEditing(null)}>
+                                    Cancel
+                                </Button>
+                                <Button disabled={editForm.processing || editForm.data.display_locations.length === 0} className="bg-brand-teal">
+                                    Save changes
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    )}
                 </DialogContent>
             </Dialog>
             <Dialog open={!!viewing} onOpenChange={(open) => !open && setViewing(null)}>

@@ -23,9 +23,15 @@ return new class extends Migration
             });
         }
 
+        if (! Schema::hasColumn('tbl_users', 'middle_name')) {
+            Schema::table('tbl_users', function (Blueprint $table) {
+                $table->string('middle_name', 100)->nullable()->after('first_name');
+            });
+        }
+
         if (! Schema::hasColumn('tbl_users', 'last_name')) {
             Schema::table('tbl_users', function (Blueprint $table) {
-                $table->string('last_name', 100)->nullable()->after('first_name');
+                $table->string('last_name', 100)->nullable()->after('middle_name');
             });
         }
 
@@ -81,6 +87,7 @@ return new class extends Migration
             $table->dropColumn([
                 'unique_id',
                 'first_name',
+                'middle_name',
                 'last_name',
                 'gender',
                 'date_of_birth',

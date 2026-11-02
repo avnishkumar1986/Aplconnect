@@ -1,10 +1,10 @@
-import { ChatAvatar } from '../Components/chat-avatar';
-import { ChatCategoryTabs, type ChatCategory } from '../Components/chat-category-tabs';
-import { ChatMessage, type ChatMessageData } from '../Components/chat-message';
 import AppLayout from '@/layouts/app-layout';
 import { Head } from '@inertiajs/react';
 import { ArrowLeft, Building2, MessageCircle, MoreVertical, Paperclip, Phone, Search, Send, Smile, Video } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { ChatAvatar } from '../Components/chat-avatar';
+import { ChatCategoryTabs, type ChatCategory } from '../Components/chat-category-tabs';
+import { ChatMessage, type ChatMessageData } from '../Components/chat-message';
 
 interface Conversation {
     id: number;

@@ -1,0 +1,1 @@
+import{j as o}from"./app-DOAS_B2b.js";import{P as s}from"./project-page-header-DotZ3U3W.js";function n({title:e,description:r,action:t,icon:a}){return o.jsx(s,{eyebrow:"Master data",title:e,subtitle:r,icon:a,actions:t})}export{n as M};

@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AppLayout from '@/layouts/app-layout';
 import { Head, Link, router, useForm } from '@inertiajs/react';
-import { CalendarRange, Check, Factory, LockKeyhole, LockOpen, Search } from 'lucide-react';
+import { AlertTriangle, CalendarRange, Check, Factory, LockKeyhole, LockOpen, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 type Company = { id: number; company_code: string; company_name: string };
@@ -59,6 +59,7 @@ export default function PlanningDecisions({
     canUnlock: boolean;
 }) {
     const [bulkAction, setBulkAction] = useState<'auto' | 'manual' | 'lock' | 'unlock'>('auto');
+    const [actionError, setActionError] = useState<string | null>(null);
     const form = useForm({
         company_id: filters.company_id ? String(filters.company_id) : '',
         plant_id: filters.plant_id ? String(filters.plant_id) : 'all',
@@ -101,8 +102,11 @@ export default function PlanningDecisions({
             {
                 preserveScroll: true,
                 preserveState: true,
+                onStart: () => setActionError(null),
+                onError: (errors) => setActionError(String(errors.lock ?? 'The selected decisions could not be updated.')),
                 onSuccess: () => {
-                    if (action === 'unlock-all') form.setData('selections', []);
+                    setActionError(null);
+                    form.setData('selections', []);
                 },
             },
         );
@@ -233,6 +237,19 @@ export default function PlanningDecisions({
                         </div>
                     }
                 />
+
+                {actionError && (
+                    <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                        <div className="min-w-0 flex-1">
+                            <p className="font-bold">Unable to update planning decision</p>
+                            <p className="mt-0.5 text-xs text-amber-800">{actionError}</p>
+                        </div>
+                        <button type="button" onClick={() => setActionError(null)} className="text-xs font-bold text-amber-700 hover:text-amber-950">
+                            Dismiss
+                        </button>
+                    </div>
+                )}
 
                 <section className="overflow-hidden rounded-2xl border bg-white shadow-sm">
                     {form.data.selections.length > 0 && (
@@ -391,7 +408,11 @@ export default function PlanningDecisions({
                                                         router.patch(
                                                             `/admin/procurement/planning-decisions/${item.id}/lock`,
                                                             {},
-                                                            { preserveScroll: true },
+                                                            {
+                                                                preserveScroll: true,
+                                                                onStart: () => setActionError(null),
+                                                                onError: (errors) => setActionError(String(errors.lock ?? 'This planning decision could not be locked.')),
+                                                            },
                                                         )
                                                     }
                                                     title="Lock decision"

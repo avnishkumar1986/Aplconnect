@@ -26,82 +26,79 @@ class ProcurementController extends Controller
 
     public function dashboard(Request $request): Response
     {
-        $company = null;
-        $plant = null;
-        $materialCode = '';
-
-        $filterConsumptions = function ($query) use ($company, $plant, $materialCode) {
-            return $query
-                ->when($company, fn ($query) => $query->where('company_id', $company->id))
-                ->when($plant, fn ($query) => $query->where('plant_id', $plant->id))
-                ->when($materialCode !== '', fn ($query) => $query->where('material', $materialCode));
-        };
-        $filterPurchases = function ($query) use ($company, $plant, $materialCode) {
-            return $query
-                ->when($company, fn ($query) => $query->where('company_id', $company->id))
-                ->when($plant, fn ($query) => $query->where('plant_id', $plant->id))
-                ->when($materialCode !== '', fn ($query) => $query->where('material', $materialCode));
-        };
-
-        $activeConsumptions = $filterConsumptions(DB::table('procurement_daily_consumptions')->where('status', 1));
-        $activePurchases = $filterPurchases(DB::table('procurement_purchases')->where('status', 1));
-        $openPurchases = $filterPurchases(DB::table('procurement_purchases')->where('status', 1)->whereIn('delivery_status', ['planned', 'in_transit', 'partially_received']));
-
-        $plantDemand = DB::table('tbl_company as plant')
-            ->leftJoin('procurement_daily_consumptions as consumption', function (JoinClause $join) use ($company, $materialCode): void {
-                $join->on('consumption.plant_id', '=', 'plant.id')
-                    ->where('consumption.status', 1)
-                    ->when($company, fn (JoinClause $join) => $join->where('consumption.company_id', $company->id))
-                    ->when($materialCode !== '', fn (JoinClause $join) => $join->where('consumption.material', $materialCode));
-            })
-            ->where('plant.record_type', 2)
-            ->where('plant.status', 1)
-            ->when($company, fn ($query) => $query->where('plant.parent_company_id', $company->company_code))
-            ->when($plant, fn ($query) => $query->where('plant.id', $plant->id))
-            ->select('plant.company_name as label', DB::raw('COALESCE(SUM(consumption.quantity_mt * COALESCE(consumption.day_count, 1)), 0) as value'))
-            ->groupBy('plant.id', 'plant.company_name')
-            ->orderByDesc('value')
-            ->get();
-
-        $materialDemand = DB::table('tbl_materials as material')
-            ->leftJoin('procurement_daily_consumptions as consumption', function (JoinClause $join) use ($company, $plant): void {
-                $join->on('consumption.material', '=', 'material.matnr')
-                    ->where('consumption.status', 1)
-                    ->when($company, fn (JoinClause $join) => $join->where('consumption.company_id', $company->id))
-                    ->when($plant, fn (JoinClause $join) => $join->where('consumption.plant_id', $plant->id));
+        $companies = DB::table('tbl_company')
+            ->where('record_type', 1)
+            ->where('status', 1)
+            ->whereIn('company_code', ['1000', '5000'])
+            ->orderBy('company_code')
+            ->get(['id', 'company_code', 'company_name']);
+        $selectedCompanyCode = $request->string('company')->trim()->toString() ?: '1000';
+        $company = $companies->firstWhere('company_code', $selectedCompanyCode);
+        abort_unless($company, 404);
+        $selectedSource = $request->string('source')->trim()->lower()->toString() ?: 'sap';
+        abort_unless(in_array($selectedSource, ['sap', 'manual'], true), 404);
+        $consumptionPlants = DB::table('tbl_company')
+            ->where('record_type', 2)
+            ->where('status', 1)
+            ->where('parent_company_id', $company->company_code)
+            ->orderBy('company_name')
+            ->get(['company_code', 'company_name']);
+        $selectedPlantCodes = $consumptionPlants->pluck('company_code');
+        $materials = DB::table('tbl_materials as material')
+            ->join('tbl_material_stocks as stock', function (JoinClause $join): void {
+                $join->on('stock.matnr', '=', 'material.matnr')->where('stock.status', 1);
             })
             ->where('material.status', 1)
-            ->when($materialCode !== '', fn ($query) => $query->where('material.matnr', $materialCode))
-            ->select('material.matnr as code', 'material.maktx as name', DB::raw('COALESCE(SUM(consumption.quantity_mt * COALESCE(consumption.day_count, 1)), 0) as value'))
-            ->groupBy('material.matnr', 'material.maktx')
-            ->orderByDesc('value')
+            ->whereIn('stock.plant_code', $selectedPlantCodes)
+            ->select('material.matnr', 'material.maktx', 'material.meins')
+            ->distinct()
+            ->orderBy('material.maktx')
+            ->orderBy('material.matnr')
             ->get();
+        $requestedMaterial = $request->string('material')->trim()->toString();
+        $selectedConsumptionMaterial = $requestedMaterial !== '' && $materials->contains('matnr', $requestedMaterial)
+            ? $requestedMaterial
+            : '';
+        $selectedMaterialUnit = strtoupper((string) ($materials->firstWhere('matnr', $selectedConsumptionMaterial)->meins ?? 'KG'));
+        $consumptionDisplayUnit = $selectedConsumptionMaterial !== '' && $selectedMaterialUnit !== 'KG'
+            ? $selectedMaterialUnit
+            : 'MT';
+        $consumptionDivisor = $consumptionDisplayUnit === 'MT' ? 1000 : 1;
+        $requestedConsumptionPlant = $request->string('consumption_plant')->trim()->toString();
+        $selectedConsumptionPlant = $requestedConsumptionPlant !== '' && $consumptionPlants->contains('company_code', $requestedConsumptionPlant)
+            ? $requestedConsumptionPlant
+            : '';
+        $filterPurchases = fn ($query) => $query->where('company_id', $company->id);
 
-        $localDeliveryStatus = DB::table('procurement_purchases')
-            ->where('status', 1)
-            ->when($company, fn ($query) => $query->where('company_id', $company->id))
-            ->when($plant, fn ($query) => $query->where('plant_id', $plant->id))
-            ->when($materialCode !== '', fn ($query) => $query->where('material', $materialCode))
-            ->select(
-                DB::raw("'local' as source"),
-                'id',
-                'reference as po_number',
-                'vendor_name',
-                'delivery_status as label',
-                'quantity_mt',
-                'expected_delivery_date',
-            )
-            ->orderBy('expected_delivery_date')
-            ->get();
+        $localPurchaseMetrics = (object) ['purchase_quantity_mt' => 0, 'open_orders' => 0, 'open_order_quantity_mt' => 0];
+        $localDeliveryStatus = collect();
+
+        if ($selectedSource === 'manual') {
+            $localPurchases = $filterPurchases(DB::table('procurement_purchases')->where('status', 1));
+            $localPurchaseMetrics = (clone $localPurchases)
+                ->selectRaw('COALESCE(SUM(quantity_mt), 0) as purchase_quantity_mt')
+                ->selectRaw("SUM(CASE WHEN delivery_status IN ('planned', 'in_transit', 'partially_received') THEN 1 ELSE 0 END) as open_orders")
+                ->selectRaw("COALESCE(SUM(CASE WHEN delivery_status IN ('planned', 'in_transit', 'partially_received') THEN quantity_mt ELSE 0 END), 0) as open_order_quantity_mt")
+                ->first();
+            $localDeliveryStatus = (clone $localPurchases)
+                ->select(
+                    DB::raw("'local' as source"),
+                    'id',
+                    'reference as po_number',
+                    'vendor_name',
+                    'delivery_status as label',
+                    'quantity_mt',
+                    'expected_delivery_date',
+                )
+                ->orderBy('expected_delivery_date')
+                ->get();
+        }
 
         $apiDeliveryStatus = DB::table('tbl_vendor_purchase_orders')
             ->where('status', 1)
-            ->when($plant, fn ($query) => $query->where('plant_code', $plant->company_code))
-            ->when($company && ! $plant, function ($query) use ($company) {
-                $plantCodes = DB::table('tbl_company')->where('record_type', 2)->where('parent_company_id', $company->company_code)->pluck('company_code');
-                $query->whereIn('plant_code', $plantCodes);
-            })
-            ->when($materialCode !== '', fn ($query) => $query->where('material', $materialCode))
+            ->where('quantity_mt', '>', 0)
+            ->when($selectedSource === 'manual', fn ($query) => $query->whereRaw('1 = 0'))
+            ->whereIn('plant_code', $selectedPlantCodes)
             ->select(
                 DB::raw("'sap' as source"),
                 'id',
@@ -109,6 +106,8 @@ class ProcurementController extends Controller
                 'item_number',
                 'vendor_name',
                 'delivery_status as label',
+                'quantity_mt as total_quantity_mt',
+                'received_quantity_mt',
                 DB::raw("CASE WHEN delivery_status = 'received' THEN received_quantity_mt ELSE quantity_mt END as quantity_mt"),
                 'expected_delivery_date',
             )
@@ -127,45 +126,166 @@ class ProcurementController extends Controller
                 return $purchase;
             });
         $apiOpenPurchases = $apiDeliveryStatus->whereIn('label', ['planned', 'in_transit', 'partially_received']);
-        $apiPurchaseQuantity = (float) $apiDeliveryStatus->sum('quantity_mt');
-        $apiOpenQuantity = (float) $apiOpenPurchases->sum('quantity_mt');
+        $apiPurchaseQuantity = (float) $apiDeliveryStatus->sum('total_quantity_mt');
+        $apiOpenQuantity = (float) $apiOpenPurchases->sum(fn ($purchase): float => max((float) $purchase->total_quantity_mt - (float) $purchase->received_quantity_mt, 0));
 
-        $stockByPlant = DB::table('tbl_company as plant')
-            ->leftJoin('tbl_material_stocks as stock', function (JoinClause $join) use ($materialCode): void {
-                $join->on('stock.plant_code', '=', 'plant.company_code')
+        $stockByPlant = Cache::remember(
+            'procurement.dashboard.stock-by-plant.'.$company->company_code,
+            now()->addMinutes(10),
+            fn () => DB::table('tbl_company as plant')
+                ->leftJoin('tbl_material_stocks as stock', function (JoinClause $join): void {
+                    $join->on('stock.plant_code', '=', 'plant.company_code')
+                        ->where('stock.status', 1);
+                })
+                ->where('plant.record_type', 2)
+                ->where('plant.status', 1)
+                ->where('plant.parent_company_id', $company->company_code)
+                ->select('plant.company_name as label', DB::raw('COALESCE(SUM(stock.current_stock), 0) / 1000 as value'))
+                ->groupBy('plant.id', 'plant.company_name')
+                ->orderByDesc('value')
+                ->get(),
+        );
+
+        $planningMonth = CarbonImmutable::now()->startOfMonth()->toDateString();
+        $sapConsumptionByOffset = collect();
+        $activeConsumptionCount = 0;
+        $monthlyDemandMt = 0.0;
+
+        if ($selectedSource === 'sap') {
+            $sapConsumption = DB::table('tbl_material_stocks as stock')
+                ->where('stock.status', 1)
+                ->whereIn('stock.plant_code', $selectedPlantCodes);
+            $sapConsumptionTrend = (clone $sapConsumption)
+                ->when($selectedConsumptionMaterial !== '', fn ($query) => $query->where('stock.matnr', $selectedConsumptionMaterial))
+                ->when($selectedConsumptionPlant !== '', fn ($query) => $query->where('stock.plant_code', $selectedConsumptionPlant));
+
+            $sapSummary = Cache::remember(
+                'procurement.dashboard.sap-summary.'.$company->company_code,
+                now()->addMinutes(10),
+                fn () => (clone $sapConsumption)
+                    ->selectRaw('SUM(CASE WHEN stock.sap_current_month_consumption != 0 OR stock.sap_previous_month_consumption != 0 OR stock.sap_two_months_ago_consumption != 0 THEN 1 ELSE 0 END) as active_count')
+                    ->selectRaw('COALESCE(SUM(stock.sap_current_month_consumption), 0) as current_consumption')
+                    ->selectRaw('COALESCE(SUM(stock.sap_previous_month_consumption), 0) as previous_consumption')
+                    ->selectRaw('COALESCE(SUM(stock.sap_two_months_ago_consumption), 0) as two_months_ago_consumption')
+                    ->first(),
+            );
+            $activeConsumptionCount = (int) $sapSummary->active_count;
+            $monthlyDemandMt = (float) $sapSummary->current_consumption / 1000;
+            $plantDemand = Cache::remember(
+                'procurement.dashboard.sap-plant-demand.'.$company->company_code,
+                now()->addMinutes(10),
+                fn () => DB::table('tbl_material_stocks as stock')
+                    ->join('tbl_company as plant', 'plant.company_code', '=', 'stock.plant_code')
                     ->where('stock.status', 1)
-                    ->when($materialCode !== '', fn (JoinClause $join) => $join->where('stock.matnr', $materialCode));
-            })
-            ->where('plant.record_type', 2)
-            ->where('plant.status', 1)
-            ->when($company, fn ($query) => $query->where('plant.parent_company_id', $company->company_code))
-            ->when($plant, fn ($query) => $query->where('plant.id', $plant->id))
-            ->select('plant.company_name as label', DB::raw('COALESCE(SUM(stock.current_stock), 0) / 1000 as value'))
-            ->groupBy('plant.id', 'plant.company_name')
-            ->orderByDesc('value')
-            ->get();
+                    ->whereIn('stock.plant_code', $selectedPlantCodes)
+                    ->select('plant.company_name as label', DB::raw('COALESCE(SUM(stock.sap_current_month_consumption), 0) / 1000 as value'))
+                    ->groupBy('plant.id', 'plant.company_name')
+                    ->orderByDesc('value')
+                    ->get(),
+            );
+            $materialDemand = Cache::remember(
+                'procurement.dashboard.sap-material-demand.'.$company->company_code,
+                now()->addMinutes(10),
+                function () use ($selectedPlantCodes) {
+                    $stockDemand = DB::table('tbl_material_stocks as stock')
+                        ->selectRaw('COALESCE(SUM(stock.sap_current_month_consumption), 0) / 1000')
+                        ->whereColumn('stock.matnr', 'material.matnr')
+                        ->where('stock.status', 1)
+                        ->whereIn('stock.plant_code', $selectedPlantCodes);
+
+                    return DB::table('tbl_materials as material')
+                        ->where('material.status', 1)
+                        ->select('material.matnr as code', 'material.maktx as name')
+                        ->selectSub($stockDemand, 'value')
+                        ->orderByDesc('value')
+                        ->limit(12)
+                        ->get();
+                },
+            );
+            $trendSummary = $selectedConsumptionMaterial === '' && $selectedConsumptionPlant === ''
+                ? $sapSummary
+                : (clone $sapConsumptionTrend)
+                    ->selectRaw('COALESCE(SUM(stock.sap_current_month_consumption), 0) as current_consumption')
+                    ->selectRaw('COALESCE(SUM(stock.sap_previous_month_consumption), 0) as previous_consumption')
+                    ->selectRaw('COALESCE(SUM(stock.sap_two_months_ago_consumption), 0) as two_months_ago_consumption')
+                    ->first();
+            $sapConsumptionByOffset = collect([
+                0 => (float) $trendSummary->current_consumption / $consumptionDivisor,
+                1 => (float) $trendSummary->previous_consumption / $consumptionDivisor,
+                2 => (float) $trendSummary->two_months_ago_consumption / $consumptionDivisor,
+            ]);
+        } else {
+            $lockedManual = DB::table('procurement_daily_consumptions as consumption')
+                ->join('procurement_planning_decisions as decision', function (JoinClause $join) use ($planningMonth): void {
+                    $join->on('decision.company_id', '=', 'consumption.company_id')
+                        ->on('decision.plant_id', '=', 'consumption.plant_id')
+                        ->on('decision.material', '=', 'consumption.material')
+                        ->whereDate('decision.planning_month', $planningMonth)
+                        ->where('decision.planning_mode', 'manual')
+                        ->where('decision.status', 1)
+                        ->whereNotNull('decision.locked_at');
+                })
+                ->where('consumption.company_id', $company->id)
+                ->where('consumption.status', 1);
+
+            $activeConsumptionCount = (clone $lockedManual)->distinct()->count('consumption.id');
+            $monthlyDemandMt = (float) (clone $lockedManual)->sum(DB::raw('consumption.quantity_mt * COALESCE(consumption.day_count, 1)'));
+            $plantDemand = (clone $lockedManual)
+                ->join('tbl_company as plant', 'plant.id', '=', 'consumption.plant_id')
+                ->select('plant.company_name as label', DB::raw('SUM(consumption.quantity_mt * COALESCE(consumption.day_count, 1)) as value'))
+                ->groupBy('plant.id', 'plant.company_name')
+                ->orderByDesc('value')
+                ->get();
+            $materialDemand = (clone $lockedManual)
+                ->leftJoin('tbl_materials as material', 'material.matnr', '=', 'consumption.material')
+                ->select('consumption.material as code', DB::raw('MAX(material.maktx) as name'), DB::raw('SUM(consumption.quantity_mt * COALESCE(consumption.day_count, 1)) as value'))
+                ->groupBy('consumption.material')
+                ->orderByDesc('value')
+                ->get();
+        }
+
+        $monthOffsets = $selectedSource === 'sap' ? range(2, 0) : range(5, 0);
+        $monthlyConsumption = collect($monthOffsets)->map(function (int $monthsAgo) use ($monthlyDemandMt, $selectedSource, $sapConsumptionByOffset): array {
+            $month = CarbonImmutable::now()->startOfMonth()->subMonths($monthsAgo);
+
+            return [
+                'month' => $month->format('M Y'),
+                'value' => $selectedSource === 'sap'
+                    ? (float) ($sapConsumptionByOffset[$monthsAgo] ?? 0)
+                    : ($monthsAgo === 0 ? $monthlyDemandMt : 0.0),
+            ];
+        })->values();
+        $inventoryMt = Cache::remember(
+            'procurement.dashboard.inventory.'.$company->company_code,
+            now()->addMinutes(10),
+            fn (): float => (float) DB::table('tbl_material_stocks')
+                ->where('status', 1)
+                ->whereIn('plant_code', $selectedPlantCodes)
+                ->sum('current_stock') / 1000,
+        );
 
         return Inertia::render('modules/procurement/dashboard', [
+            'companies' => $companies,
+            'selectedCompany' => $company?->company_code,
+            'selectedSource' => $selectedSource,
+            'materials' => $materials,
+            'selectedMaterial' => $selectedConsumptionMaterial,
+            'consumptionPlants' => $consumptionPlants,
+            'selectedConsumptionPlant' => $selectedConsumptionPlant,
+            'consumptionUnit' => $consumptionDisplayUnit,
             'kpis' => [
-                'active_consumptions' => (clone $activeConsumptions)->count(),
-                'monthly_demand_mt' => (float) (clone $activeConsumptions)->sum(DB::raw('quantity_mt * COALESCE(day_count, 1)')),
-                'purchase_quantity_mt' => (float) (clone $activePurchases)->sum('quantity_mt') + $apiPurchaseQuantity,
-                'open_orders' => (clone $openPurchases)->count() + $apiOpenPurchases->count(),
-                'open_order_quantity_mt' => (float) (clone $openPurchases)->sum('quantity_mt') + $apiOpenQuantity,
-                'inventory_mt' => (float) DB::table('tbl_material_stocks')
-                    ->where('status', 1)
-                    ->when($plant, fn ($query) => $query->where('plant_code', $plant->company_code))
-                    ->when($company && ! $plant, function ($query) use ($company) {
-                        $plantCodes = DB::table('tbl_company')->where('record_type', 2)->where('parent_company_id', $company->company_code)->pluck('company_code');
-                        $query->whereIn('plant_code', $plantCodes);
-                    })
-                    ->when($materialCode !== '', fn ($query) => $query->where('matnr', $materialCode))
-                    ->sum('current_stock') / 1000,
+                'active_consumptions' => $activeConsumptionCount,
+                'monthly_demand_mt' => $monthlyDemandMt,
+                'purchase_quantity_mt' => (float) $localPurchaseMetrics->purchase_quantity_mt + $apiPurchaseQuantity,
+                'open_orders' => (int) $localPurchaseMetrics->open_orders + $apiOpenPurchases->count(),
+                'open_order_quantity_mt' => (float) $localPurchaseMetrics->open_order_quantity_mt + $apiOpenQuantity,
+                'inventory_mt' => $inventoryMt,
             ],
             'plantDemand' => $plantDemand,
             'materialDemand' => $materialDemand,
             'deliveryStatus' => $deliveryStatus,
             'stockByPlant' => $stockByPlant,
+            'monthlyConsumption' => $monthlyConsumption,
         ]);
     }
 
@@ -559,12 +679,12 @@ class ProcurementController extends Controller
             $plant->id => (float) ($stocks->get($plant->company_code)?->current_stock ?? 0) / 1000,
         ])->all();
 
-        $plantColumns = $periods->flatMap(function (CarbonImmutable $period) use ($displayPlants, $stocks, $consumptions, $purchases, $savedResults, $planningDecisions, &$rollingOpeningStock, $plantId, $monthStart, $allMonthsSelected) {
+        $plantColumns = $periods->flatMap(function (CarbonImmutable $period) use ($displayPlants, $stocks, $consumptions, $purchases, $savedResults, $planningDecisions, &$rollingOpeningStock, $monthStart, $allMonthsSelected) {
             $periodKey = $period->format('Y-m');
             $periodStart = $period->startOfMonth();
             $periodEnd = $period->endOfMonth();
 
-            return $displayPlants->map(function ($plant) use ($stocks, $consumptions, $purchases, $savedResults, $planningDecisions, &$rollingOpeningStock, $plantId, $periodKey, $periodStart, $periodEnd, $monthStart, $allMonthsSelected) {
+            return $displayPlants->map(function ($plant) use ($stocks, $consumptions, $purchases, $savedResults, $planningDecisions, &$rollingOpeningStock, $periodKey, $periodStart, $periodEnd, $monthStart, $allMonthsSelected) {
                 $groupKey = $plant->id.'|'.$periodKey;
                 $plantConsumptions = $consumptions->get($plant->id, collect());
                 $hasPeriodConsumption = $plantConsumptions->contains(
@@ -617,20 +737,34 @@ class ProcurementController extends Controller
                 $closingStock = $totalAvailability - $consumption;
                 $grossShortage = max(0, $consumption - ($openingStock + $plannedBuying));
                 $remainingShortage = max(0, $grossShortage - $localPurchaseQuantity - $sapPurchaseQuantity);
-                $purchaseOrders = $plantPurchases->map(fn ($purchase) => [
-                    'po_number' => $purchase->reference ?: 'Manual PO',
-                    'vendor_name' => $purchase->vendor_name ?: 'Vendor not provided',
-                    'quantity_mt' => (float) $purchase->quantity_mt,
-                    'total_quantity_mt' => (float) ($purchase->total_quantity_mt ?? $purchase->quantity_mt),
-                    'reduced_quantity_mt' => (float) ($purchase->reduced_quantity_mt ?? 0),
-                    'balance_quantity_mt' => (float) ($purchase->balance_quantity_mt ?? $purchase->quantity_mt),
-                    'rate' => (float) ($purchase->rate ?? 0),
-                    'amount' => (float) ($purchase->amount ?? 0),
-                    'currency' => $purchase->currency ?? null,
-                    'eta' => $purchase->expected_delivery_date,
-                    'source' => $purchase->source ?? 'local',
-                    'status' => $purchase->delivery_status,
-                ])->values();
+                $purchaseOrders = $plantPurchases->map(function ($purchase) {
+                    $totalQuantity = (float) ($purchase->total_quantity_mt ?? $purchase->quantity_mt);
+                    $rate = (float) ($purchase->rate ?? 0);
+                    $amount = (float) ($purchase->amount ?? 0);
+
+                    // Legacy SAP imports stored POPRICE (the complete PO value)
+                    // in rate and left amount at zero. Keep historical rows correct
+                    // until the normalization migration has been deployed.
+                    if ($amount <= 0 && $rate > 0 && $totalQuantity > 0) {
+                        $amount = $rate;
+                        $rate = $amount / $totalQuantity;
+                    }
+
+                    return [
+                        'po_number' => $purchase->reference ?: 'Manual PO',
+                        'vendor_name' => $purchase->vendor_name ?: 'Vendor not provided',
+                        'quantity_mt' => (float) $purchase->quantity_mt,
+                        'total_quantity_mt' => $totalQuantity,
+                        'reduced_quantity_mt' => (float) ($purchase->reduced_quantity_mt ?? 0),
+                        'balance_quantity_mt' => (float) ($purchase->balance_quantity_mt ?? $purchase->quantity_mt),
+                        'rate' => $rate,
+                        'amount' => $amount,
+                        'currency' => $purchase->currency ?: 'INR',
+                        'eta' => $purchase->expected_delivery_date,
+                        'source' => $purchase->source ?? 'local',
+                        'status' => $purchase->delivery_status,
+                    ];
+                })->values();
                 $saved = $savedResults->get($groupKey);
                 $remarks = $saved?->remarks ? (json_decode($saved->remarks, true) ?: []) : [];
                 $rollingOpeningStock[$plant->id] = $closingStock;
@@ -1028,7 +1162,6 @@ class ProcurementController extends Controller
     {
         $deleted = DB::transaction(function (): array {
             return [
-                'plan histories' => DB::table('procurement_plan_histories')->delete(),
                 'MOU plans' => DB::table('procurement_mou_plans')->delete(),
                 'purchases' => DB::table('procurement_purchases')->delete(),
                 'balance results' => DB::table('procurement_balance_results')->delete(),

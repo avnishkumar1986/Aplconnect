@@ -76,7 +76,7 @@ class CompanyController extends Controller
             ->where('company_code', '!=', '0')
             ->orderBy('record_type')
             ->orderBy('company_name')
-            ->get(['id', 'company_code', 'company_name', 'record_type', 'parent_company_id', 'gstin', 'status']);
+            ->get(['id', 'company_code', 'company_name', 'record_type', 'parent_company_id', 'status']);
 
         $childrenByParent = $companies->whereNotNull('parent_company_id')->groupBy('parent_company_id');
         $roots = $companies->filter(fn (Company $company): bool => $company->record_type === 1 && $company->parent_company_id === null);
@@ -213,13 +213,13 @@ class CompanyController extends Controller
             'usr_type' => ['required', 'string', Rule::in(['USR9', 'USR10', 'USR11'])],
             'parent_company_id' => ['nullable', 'string', 'max:30', Rule::exists('tbl_company', 'company_code'), Rule::notIn([$company?->company_code])],
             'gstin' => ['nullable', 'string', 'size:15'], 'pan' => ['nullable', 'string', 'size:10'], 'status' => ['required', 'boolean'],
-            'address_line_1' => ['required', 'string', 'max:255'], 'address_line_2' => ['nullable', 'string', 'max:255'],
-            'city' => ['required', 'string', 'max:100'], 'state' => ['required', 'string', 'max:100'],
-            'district' => ['nullable', 'string', 'max:100'], 'postal_code' => ['required', 'string', 'max:20'],
-            'country' => ['required', 'string', 'max:100'], 'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'address_line_1' => ['nullable', 'string', 'max:255'], 'address_line_2' => ['nullable', 'string', 'max:255'],
+            'city' => ['nullable', 'string', 'max:100'], 'state' => ['nullable', 'string', 'max:100'],
+            'district' => ['nullable', 'string', 'max:100'], 'postal_code' => ['nullable', 'string', 'max:20'],
+            'country' => ['nullable', 'string', 'max:100'], 'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'google_maps_url' => ['nullable', 'url', 'max:8000'],
-            'email' => ['nullable', 'email:rfc', 'max:255'], 'contact_number' => ['required', 'string', 'max:30'],
+            'email' => ['nullable', 'email:rfc', 'max:255'], 'contact_number' => ['nullable', 'string', 'max:30'],
         ], ['parent_company_id.not_in' => 'A company cannot be its own parent.']);
     }
 
@@ -261,7 +261,7 @@ class CompanyController extends Controller
 
     /**
      * @param  Collection<string, Collection<int, Company>>  $childrenByParent
-     * @return array{id: int, code: string, name: string, type: int, parent_code: string|null, gstin: string|null, active: bool, children: array<int, mixed>}
+     * @return array{id: int, code: string, name: string, type: int, parent_code: string|null, active: bool, children: array<int, mixed>}
      */
     private function hierarchyNode(Company $company, $childrenByParent): array
     {
@@ -271,7 +271,6 @@ class CompanyController extends Controller
             'name' => $company->company_name,
             'type' => $company->record_type,
             'parent_code' => $company->parent_company_id,
-            'gstin' => $company->gstin,
             'active' => $company->status,
             'children' => $childrenByParent->get($company->company_code, collect())
                 ->sortBy(fn (Company $child): int => $child->record_type === 3 ? 0 : $child->record_type)
