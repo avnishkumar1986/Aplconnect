@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Company;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -15,6 +15,12 @@ class GroupOverviewController extends Controller
 {
     public function index(Request $request): Response
     {
+        // A full browser refresh always starts Group Overview at All companies.
+        // Inertia requests retain the selection while the user remains on the page.
+        if (! $request->header('X-Inertia')) {
+            $request->session()->forget('group_overview.company');
+        }
+
         $plants = Company::query()
             ->from('tbl_company as plant')
             ->join('tbl_company as parent', 'parent.company_code', '=', 'plant.parent_company_id')
@@ -39,7 +45,7 @@ class GroupOverviewController extends Controller
             ])
             ->values();
 
-        $requestedCompany = $request->string('company')->trim()->toString();
+        $requestedCompany = trim((string) $request->session()->get('group_overview.company', ''));
         $selectedCompany = $companies->contains('code', $requestedCompany)
             ? $requestedCompany
             : null;
@@ -49,12 +55,16 @@ class GroupOverviewController extends Controller
             ->where('summary.status', true)
             ->where('customer.user_type', 'USR4')
             ->where('customer.status', true)
-            ->when($selectedCompany, fn ($query) => $query->whereExists(function ($query) use ($selectedCompany): void {
+            ->whereExists(function ($query) use ($selectedCompany, $companies): void {
                 $query->selectRaw('1')
                     ->from('tbl_customer_company_map as customer_company')
                     ->whereColumn('customer_company.customer_number', 'customer.unique_id')
-                    ->where('customer_company.company_code', $selectedCompany);
-            }));
+                    ->when(
+                        $selectedCompany,
+                        fn ($query) => $query->where('customer_company.company_code', $selectedCompany),
+                        fn ($query) => $query->whereIn('customer_company.company_code', $companies->pluck('code')),
+                    );
+            });
 
         $netSales = (clone $customerSalesSummary)
             ->selectRaw('COALESCE(SUM(summary.current_month_sales), 0) as mtd')
@@ -62,12 +72,27 @@ class GroupOverviewController extends Controller
             ->selectRaw('COALESCE(SUM(summary.last_month_sales), 0) as last_month_sales')
             ->selectRaw('COALESCE(SUM(summary.two_months_ago_sales), 0) as two_months_ago_sales')
             ->selectRaw('COALESCE(SUM(summary.current_month_payment_received), 0) as collection_mtd')
-            ->selectRaw('COALESCE(SUM(summary.current_month_overdue), 0) as receivables_overdue')
+            ->selectRaw('COALESCE(SUM(summary.two_months_ago_overdue), 0) as receivables_overdue')
+            ->selectRaw('COALESCE(SUM(summary.current_month_outstanding), 0) as total_receivables')
             ->selectRaw('COALESCE(SUM(summary.last_month_payment_received), 0) as collection_last_month')
             ->selectRaw('COALESCE(SUM(summary.two_months_ago_payment_received), 0) as collection_two_months_ago')
             ->selectRaw('COALESCE(SUM(COALESCE(summary.current_month_payment_received, 0) + COALESCE(summary.last_month_payment_received, 0) + COALESCE(summary.two_months_ago_payment_received, 0)), 0) as collection_three_months')
             ->selectRaw('MAX(COALESCE(summary.synced_at, summary.updated_at)) as sales_at')
             ->first();
+
+        $dailySalesQuery = DB::table('tbl_dailysale')
+            ->where('status', true)
+            ->when($selectedCompany, fn ($query) => $query->where('company_code', $selectedCompany));
+        $latestSalesDate = (clone $dailySalesQuery)
+            ->where('billing_date', '<=', today()->toDateString())
+            ->orderByDesc('billing_date')
+            ->value('billing_date');
+        $yesterdaySalesDate = $latestSalesDate && Carbon::parse($latestSalesDate)->lt(today())
+            ? Carbon::parse($latestSalesDate)->toDateString()
+            : today()->subDay()->toDateString();
+        $yesterdaySales = (float) (clone $dailySalesQuery)
+            ->where('billing_date', $yesterdaySalesDate)
+            ->sum('net_value');
 
         $latestSummaryAt = $netSales->sales_at ?? null;
         $apiSyncAt = DB::table('tbl_api_integrations')
@@ -83,20 +108,9 @@ class GroupOverviewController extends Controller
         $monthlySales = $monthlySalesRows->pluck('net_sales_crore', 'sales_month');
         $monthlyCollectionQuery = DB::table('tbl_customer_collection_transactions as receipt')
             ->where('receipt.status', true)
-            ->whereYear('receipt.posting_date', $year)
-            ->whereMonth('receipt.posting_date', '<=', today()->month);
-        if ($selectedCompany) {
-            $selectedCustomerMap = DB::table('tbl_customer_company_map')
-                ->where('company_code', $selectedCompany)
-                ->select('customer_number')
-                ->distinct();
-            $monthlyCollectionQuery->whereExists(function ($query) use ($selectedCustomerMap): void {
-                $query->selectRaw('1')
-                    ->fromSub($selectedCustomerMap, 'selected_customer')
-                    ->whereColumn('selected_customer.customer_number', 'receipt.customer_number');
-            });
-        }
-        $monthlyCollectionRows = $monthlyCollectionQuery
+            ->whereBetween('receipt.posting_date', [today()->startOfYear()->toDateString(), today()->toDateString()])
+            ->when($selectedCompany, fn ($query) => $query->where('receipt.company_code', $selectedCompany));
+        $monthlyCollectionRows = (clone $monthlyCollectionQuery)
             ->groupByRaw('MONTH(receipt.posting_date)')
             ->orderByRaw('MONTH(receipt.posting_date)')
             ->get([
@@ -107,12 +121,22 @@ class GroupOverviewController extends Controller
             ]);
         $monthlyCollections = $monthlyCollectionRows->pluck('collection_crore', 'collection_month');
 
+        $collectionTotals = (clone $monthlyCollectionQuery)
+            ->selectRaw('COALESCE(SUM(receipt.amount_received), 0) as ytd')
+            ->selectRaw('COALESCE(SUM(CASE WHEN receipt.posting_date >= ? THEN receipt.amount_received ELSE 0 END), 0) as mtd', [today()->startOfMonth()->toDateString()])
+            ->selectRaw('COALESCE(SUM(CASE WHEN receipt.posting_date = ? THEN receipt.amount_received ELSE 0 END), 0) as yesterday', [today()->subDay()->toDateString()])
+            ->selectRaw('MAX(receipt.posting_date) as data_through_date')
+            ->selectRaw('MAX(receipt.synced_at) as synced_at')
+            ->first();
+
         $currentSales = $monthlySalesRows->firstWhere('sales_month', today()->month);
         $currentCollections = $monthlyCollectionRows->firstWhere('collection_month', today()->month);
+        // Use the invoice-level daily sales table for all sales KPIs so the
+        // cards and the date-wise graph always reconcile to the same source.
         $salesMtd = (float) ($currentSales->net_sales ?? 0);
         $salesYtd = (float) $monthlySalesRows->sum(fn ($row): float => (float) $row->net_sales);
-        $collectionsMtd = (float) ($currentCollections->collection_amount ?? 0);
-        $collectionsYtd = (float) $monthlyCollectionRows->sum(fn ($row): float => (float) $row->collection_amount);
+        $collectionsMtd = (float) ($collectionTotals->mtd ?? 0);
+        $collectionsYtd = (float) ($collectionTotals->ytd ?? 0);
 
         $selectedPlantCodes = $selectedCompany
             ? $plants->where('company_code', $selectedCompany)->pluck('code')
@@ -134,15 +158,46 @@ class GroupOverviewController extends Controller
             ->first();
         $dailyConsumption = (float) ($inventory->daily_consumption ?? 0);
 
-        $openPriorityItems = 0;
-        $priorityItemsDue = 0;
-        if (Schema::hasTable('tbl_support_tickets')) {
-            $priorityQuery = DB::table('tbl_support_tickets')
-                ->where('record_status', true)
-                ->whereIn('priority', ['high', 'critical'])
-                ->whereNotIn('ticket_status', ['resolved', 'closed', 'cancelled']);
-            $openPriorityItems = (clone $priorityQuery)->count();
-            $priorityItemsDue = (clone $priorityQuery)->whereNotNull('due_at')->where('due_at', '<=', today()->endOfDay())->count();
+        $cardProps = [
+            'plants' => $plants,
+            'companies' => $companies,
+            'filters' => ['company' => $selectedCompany],
+            'netSales' => [
+                'mtd' => $salesMtd,
+                'ytd' => $salesYtd,
+                'yesterday' => $yesterdaySales,
+            ],
+            'collections' => [
+                'mtd' => $collectionsMtd,
+                'ytd' => $collectionsYtd,
+                'yesterday' => (float) ($collectionTotals->yesterday ?? 0),
+            ],
+            'receivablesOverdue' => (float) ($netSales->receivables_overdue ?? 0),
+            'totalReceivables' => (float) ($netSales->total_receivables ?? 0),
+            'inventory' => [
+                'value' => (float) ($inventory->stock_value ?? 0),
+                'zrawValue' => (float) ($inventory->zraw_value ?? 0),
+                'yrawValue' => (float) ($inventory->yraw_value ?? 0),
+                'daysOfCover' => $dailyConsumption > 0 ? round((float) $inventory->current_stock / $dailyConsumption, 1) : null,
+            ],
+            'salesMeta' => [
+                'salesDateTime' => $currentSales?->synced_at ? Carbon::parse($currentSales->synced_at)->format('d F Y, h:i A') : ($latestSummaryAt ? Carbon::parse($latestSummaryAt)->format('d F Y, h:i A') : null),
+                'collectionsDateTime' => $collectionTotals?->synced_at ? Carbon::parse($collectionTotals->synced_at)->format('d F Y, h:i A') : null,
+                'receivablesDateTime' => $latestSummaryAt ? Carbon::parse($latestSummaryAt)->format('d F Y, h:i A') : null,
+                'inventoryDateTime' => $inventory?->synced_at ? Carbon::parse($inventory->synced_at)->format('d F Y, h:i A') : null,
+                'apiSyncDateTime' => $apiSyncAt ? Carbon::parse($apiSyncAt)->format('d F Y, h:i A') : null,
+                'salesDataDate' => $latestSalesDate ? Carbon::parse($latestSalesDate)->format('d M Y') : null,
+                'yesterdaySalesDate' => Carbon::parse($yesterdaySalesDate)->format('d M Y'),
+                'collectionsDataDate' => $collectionTotals?->data_through_date ? Carbon::parse($collectionTotals->data_through_date)->format('d M Y') : null,
+                'yesterdayCollectionsDate' => today()->subDay()->format('d M Y'),
+                'receivablesDataDate' => $latestSummaryAt ? Carbon::parse($latestSummaryAt)->format('d M Y') : null,
+                'inventoryDataDate' => $inventory?->synced_at ? Carbon::parse($inventory->synced_at)->format('d M Y') : null,
+            ],
+        ];
+
+        $partialProps = array_filter(explode(',', (string) $request->header('X-Inertia-Partial-Data', '')));
+        if ($partialProps !== [] && array_intersect($partialProps, ['performance', 'companyScorecard']) === []) {
+            return Inertia::render('modules/groupoverview/dashboard', $cardProps);
         }
 
         $fiscalStartYear = today()->month >= 4 ? today()->year : today()->year - 1;
@@ -172,6 +227,35 @@ class GroupOverviewController extends Controller
             });
         $proratedMonthlyTarget = round($yearlyTargetCrore / 12, 2);
 
+        $dailySales = DB::table('tbl_dailysale')
+            ->where('status', true)
+            ->whereBetween('billing_date', [today()->startOfMonth()->toDateString(), today()->toDateString()])
+            ->when($selectedCompany, fn ($query) => $query->where('company_code', $selectedCompany))
+            ->groupBy('billing_date')
+            ->selectRaw('billing_date, SUM(net_value) / 10000000 as sales_crore')
+            ->pluck('sales_crore', 'billing_date');
+        $dailyCollectionQuery = DB::table('tbl_customer_collection_transactions as receipt')
+            ->where('receipt.status', true)
+            ->whereBetween('receipt.posting_date', [today()->startOfMonth()->toDateString(), today()->toDateString()])
+            ->when($selectedCompany, fn ($query) => $query->where('receipt.company_code', $selectedCompany));
+        $dailyCollections = $dailyCollectionQuery
+            ->groupBy('receipt.posting_date')
+            ->selectRaw('receipt.posting_date, SUM(receipt.amount_received) / 10000000 as collection_crore')
+            ->pluck('collection_crore', 'posting_date');
+        $currentMonthTarget = (float) ($monthlyTargets[today()->month] ?? $proratedMonthlyTarget);
+        $dailyTarget = round($currentMonthTarget / today()->daysInMonth, 2);
+        $dailyTrend = collect(range(1, today()->daysInMonth))->map(function (int $day) use ($dailySales, $dailyCollections, $dailyTarget): array {
+            $date = today()->startOfMonth()->day($day);
+            $dateKey = $date->toDateString();
+
+            return [
+                'date' => $date->format('d'),
+                'sales' => $dailySales->has($dateKey) ? round((float) $dailySales[$dateKey], 2) : null,
+                'collections' => $dailyCollections->has($dateKey) ? round((float) $dailyCollections[$dateKey], 2) : null,
+                'target' => $dailyTarget,
+            ];
+        });
+
         $monthlyTrend = collect(range(1, 12))->map(fn (int $month): array => [
             'date' => today()->startOfYear()->addMonths($month - 1)->format('M'),
             'sales' => $monthlySales->has($month) ? round((float) $monthlySales[$month], 2) : null,
@@ -184,42 +268,30 @@ class GroupOverviewController extends Controller
             ->where('sales_year', $year)
             ->where('sales_month', today()->month)
             ->where('company_code', '<>', 'ALL')
+            ->when($selectedCompany, fn ($query) => $query->where('company_code', $selectedCompany))
             ->pluck('total_lakh', 'company_code');
         $monthlyTargetsByCompany = DB::table('tbl_product_targets as target')
             ->joinSub($customerCompanyMap, 'target_company', 'target_company.customer_number', '=', 'target.customer_code')
             ->where('target.status', true)
             ->where('target.fiscal_year', $targetFiscalYear)
+            ->when($selectedCompany, fn ($query) => $query->where('target_company.company_code', $selectedCompany))
             ->groupBy('target_company.company_code')
             ->selectRaw('target_company.company_code, SUM(target.total_sale) / 12 as monthly_target_lakh')
             ->pluck('monthly_target_lakh', 'target_company.company_code');
-        $ytdSalesByCompany = DB::table('tbl_monthly_sales')
-            ->where('sales_year', $year)
-            ->where('sales_month', '<=', today()->month)
-            ->where('company_code', '<>', 'ALL')
-            ->groupBy('company_code')
-            ->selectRaw('company_code, SUM(net_sales) / 10000000 as ytd_sales_crore')
-            ->pluck('ytd_sales_crore', 'company_code');
-        $yearlyTargetsByCompany = DB::table('tbl_product_targets as target')
-            ->joinSub($customerCompanyMap, 'target_company', 'target_company.customer_number', '=', 'target.customer_code')
-            ->where('target.status', true)
-            ->where('target.fiscal_year', $targetFiscalYear)
-            ->groupBy('target_company.company_code')
-            ->selectRaw('target_company.company_code, SUM(target.total_sale) / 100 as yearly_target_crore')
-            ->pluck('yearly_target_crore', 'target_company.company_code');
-        $ytdCollectionsByCompany = DB::table('tbl_customer_collection_transactions as receipt')
-            ->joinSub($customerCompanyMap, 'receipt_company', 'receipt_company.customer_number', '=', 'receipt.customer_number')
+        $mtdCollectionsByCompany = DB::table('tbl_customer_collection_transactions as receipt')
             ->where('receipt.status', true)
-            ->whereYear('receipt.posting_date', $year)
-            ->whereMonth('receipt.posting_date', '<=', today()->month)
-            ->groupBy('receipt_company.company_code')
-            ->selectRaw('receipt_company.company_code, SUM(receipt.amount_received) / 10000000 as collection_crore')
-            ->pluck('collection_crore', 'receipt_company.company_code');
+            ->whereBetween('receipt.posting_date', [today()->startOfMonth()->toDateString(), today()->toDateString()])
+            ->when($selectedCompany, fn ($query) => $query->where('receipt.company_code', $selectedCompany))
+            ->groupBy('receipt.company_code')
+            ->selectRaw('receipt.company_code, SUM(receipt.amount_received) / 10000000 as collection_crore')
+            ->pluck('collection_crore', 'receipt.company_code');
         $customerMetricsByCompany = DB::table('tbl_customer_sales_summary as summary')
             ->joinSub($customerCompanyMap, 'customer_company', 'customer_company.customer_number', '=', 'summary.customer_number')
             ->where('summary.status', true)
+            ->when($selectedCompany, fn ($query) => $query->where('customer_company.company_code', $selectedCompany))
             ->groupBy('customer_company.company_code')
             ->selectRaw('customer_company.company_code')
-            ->selectRaw('SUM(summary.current_month_overdue) / 10000000 as overdue_crore')
+            ->selectRaw('SUM(summary.two_months_ago_overdue) / 10000000 as overdue_crore')
             ->selectRaw('COUNT(DISTINCT summary.customer_number) as active_customers')
             ->get()
             ->keyBy('company_code');
@@ -232,60 +304,57 @@ class GroupOverviewController extends Controller
                 'plan' => round((float) ($monthlyTargetsByCompany[$company['code']] ?? 0), 2),
             ])
             ->values();
-        $companyScorecard = $companies->map(function (array $company) use ($ytdSalesByCompany, $yearlyTargetsByCompany, $ytdCollectionsByCompany, $customerMetricsByCompany): array {
-            $actual = (float) ($ytdSalesByCompany[$company['code']] ?? 0);
-            $target = (float) ($yearlyTargetsByCompany[$company['code']] ?? 0);
+        $companyScorecard = $companies
+            ->when($selectedCompany, fn ($companies) => $companies->where('code', $selectedCompany))
+            ->map(function (array $company) use ($actualSalesByCompany, $monthlyTargetsByCompany, $mtdCollectionsByCompany, $customerMetricsByCompany): array {
+            $actual = (float) ($actualSalesByCompany[$company['code']] ?? 0) / 100;
+            $target = (float) ($monthlyTargetsByCompany[$company['code']] ?? 0) / 100;
             $metrics = $customerMetricsByCompany[$company['code']] ?? null;
 
             return [
                 'code' => $company['code'],
                 'company' => $company['name'],
-                'ytdSales' => round($actual, 2),
-                'yearlyTarget' => round($target, 2),
-                'planAchievement' => $target > 0 ? round(($actual / $target) * 100, 1) : 0.0,
-                'collections' => round((float) ($ytdCollectionsByCompany[$company['code']] ?? 0), 2),
+                'mtdSales' => round($actual, 2),
+                'monthlyTarget' => round($target, 2),
+                'monthlyAchievement' => $target > 0 ? round(($actual / $target) * 100, 1) : 0.0,
+                'mtdCollections' => round((float) ($mtdCollectionsByCompany[$company['code']] ?? 0), 2),
                 'overdue' => round((float) ($metrics->overdue_crore ?? 0), 2),
                 'activeCustomers' => (int) ($metrics->active_customers ?? 0),
             ];
-        })->values();
+            })->values();
 
         return Inertia::render('modules/groupoverview/dashboard', [
-            'plants' => $plants,
-            'companies' => $companies,
-            'filters' => ['company' => $selectedCompany],
-            'netSales' => [
-                'mtd' => $salesMtd,
-                'ytd' => $salesYtd,
-            ],
-            'collections' => [
-                'mtd' => $collectionsMtd,
-                'ytd' => $collectionsYtd,
-            ],
-            'receivablesOverdue' => (float) ($netSales->receivables_overdue ?? 0),
-            'inventory' => [
-                'value' => (float) ($inventory->stock_value ?? 0),
-                'zrawValue' => (float) ($inventory->zraw_value ?? 0),
-                'yrawValue' => (float) ($inventory->yraw_value ?? 0),
-                'daysOfCover' => $dailyConsumption > 0 ? round((float) $inventory->current_stock / $dailyConsumption, 1) : null,
-            ],
-            'priorityItems' => [
-                'open' => $openPriorityItems,
-                'due' => $priorityItemsDue,
-            ],
+            ...$cardProps,
             'performance' => [
                 'year' => $year,
                 'yearlyTarget' => $yearlyTargetCrore,
                 'targetFiscalYear' => $targetFiscalYear,
                 'monthlyTrend' => $monthlyTrend,
+                'dailyTrend' => $dailyTrend,
                 'planComparison' => $planComparison,
             ],
             'companyScorecard' => $companyScorecard,
-            'salesMeta' => [
-                'salesDateTime' => $currentSales?->synced_at ? Carbon::parse($currentSales->synced_at)->format('d F Y, h:i A') : ($latestSummaryAt ? Carbon::parse($latestSummaryAt)->format('d F Y, h:i A') : null),
-                'collectionsDateTime' => $currentCollections?->synced_at ? Carbon::parse($currentCollections->synced_at)->format('d F Y, h:i A') : null,
-                'inventoryDateTime' => $inventory?->synced_at ? Carbon::parse($inventory->synced_at)->format('d F Y, h:i A') : null,
-                'apiSyncDateTime' => $apiSyncAt ? Carbon::parse($apiSyncAt)->format('d F Y, h:i A') : null,
-            ],
         ]);
+    }
+
+    public function updateCompanyFilter(Request $request): RedirectResponse
+    {
+        $company = trim((string) $request->validate([
+            'company' => ['nullable', 'string', 'max:50'],
+        ])['company'] ?? '');
+
+        $isValidCompany = $company !== '' && Company::query()
+            ->where('company_code', $company)
+            ->where('record_type', 1)
+            ->where('status', true)
+            ->exists();
+
+        if ($isValidCompany) {
+            $request->session()->put('group_overview.company', $company);
+        } else {
+            $request->session()->forget('group_overview.company');
+        }
+
+        return to_route('admin.group-overview.index');
     }
 }

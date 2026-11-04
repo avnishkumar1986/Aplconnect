@@ -3,13 +3,11 @@ type LineChartProps = {
     collections: Array<number | null>;
     target: number[];
     labels: string[];
-    yearlyTarget: number;
-    targetFiscalYear: string;
 };
 
 const crore = (value: number) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
 
-export function LineTrendChart({ sales, collections, target, labels, yearlyTarget, targetFiscalYear }: LineChartProps) {
+export function LineTrendChart({ sales, collections, target, labels }: LineChartProps) {
     const daily = labels.map((date, index) => ({
         date,
         sales: sales[index] ?? null,
@@ -46,33 +44,17 @@ export function LineTrendChart({ sales, collections, target, labels, yearlyTarge
     const collectionSegments = lineSegments(displayedDays.map((day) => day.collections));
     const targetSegments = lineSegments(displayedDays.map((day) => day.target));
     const yTicks = Array.from({ length: 5 }, (_, index) => highestValue - (highestValue / 4) * index);
-    const salesTotal = sales.reduce<number>((total, value) => total + (value ?? 0), 0);
     const collectionTotal = collections.reduce<number>((total, value) => total + (value ?? 0), 0);
     const hasCollections = collectionTotal > 0;
 
     return (
         <div className="space-y-5 p-4 sm:p-5">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <div className="border-brand-aqua/30 bg-brand-aqua/5 rounded-xl border px-4 py-3">
-                    <p className="text-muted-foreground text-[9px] font-bold tracking-wide uppercase">Full-year sales</p>
-                    <p className="text-brand-teal mt-1 text-lg font-black">{crore(salesTotal)}</p>
-                </div>
-                <div className="border-brand-gold/30 bg-brand-gold/5 rounded-xl border px-4 py-3">
-                    <p className="text-muted-foreground text-[9px] font-bold tracking-wide uppercase">Full-year collections</p>
-                    <p className="text-brand-berry mt-1 text-lg font-black">{crore(collectionTotal)}</p>
-                </div>
-                <div className="border-brand-plum/30 bg-brand-plum/5 rounded-xl border px-4 py-3">
-                    <p className="text-muted-foreground text-[9px] font-bold tracking-wide uppercase">Yearly target · {targetFiscalYear}</p>
-                    <p className="text-brand-plum mt-1 text-lg font-black">{crore(yearlyTarget)}</p>
-                </div>
-            </div>
-
             <div className="border-border bg-muted/20 min-h-56 overflow-x-auto rounded-xl border px-3 py-4">
                 <svg
                     viewBox="0 0 720 210"
-                    className="h-52 w-full min-w-[520px]"
+                    className="h-56 w-full min-w-0"
                     role="img"
-                    aria-label="Monthly sales, collections, and target line chart"
+                    aria-label="Daily sales, collections, and target line chart"
                 >
                     {yTicks.map((tick, index) => {
                         const y = chartTop + index * ((chartBottom - chartTop) / 4);
@@ -167,7 +149,13 @@ export function LineTrendChart({ sales, collections, target, labels, yearlyTarge
                                 <rect x={x - 12} y={chartTop} width="24" height={chartBottom - chartTop} fill="transparent" className="cursor-help">
                                     <title>{`${day.date} · Sales: ${day.sales === null ? 'No data' : crore(day.sales)} · Collections: ${day.collections === null ? 'No data' : crore(day.collections)} · Target: ${crore(day.target)}`}</title>
                                 </rect>
-                                <text x={x} y="198" textAnchor="middle" className="fill-muted-foreground text-[8px] font-semibold">
+                                <text
+                                    x={x}
+                                    y="198"
+                                    textAnchor="end"
+                                    transform={`rotate(-50 ${x} 198)`}
+                                    className="fill-muted-foreground text-[7px] font-semibold"
+                                >
                                     {day.date}
                                 </text>
                             </g>
@@ -199,8 +187,13 @@ export function LineTrendChart({ sales, collections, target, labels, yearlyTarge
     );
 }
 
-export function PlanComparisonChart({ rows }: { rows: Array<{ name: string; actual: number; plan: number }> }) {
+export function PlanComparisonChart({ rows, unit }: { rows: Array<{ name: string; actual: number; plan: number }>; unit: 'Lk' | 'Cr' }) {
     const maximum = Math.max(...rows.flatMap((row) => [row.actual, row.plan]), 1);
+    const formatValue = (valueInLakhs: number) => {
+        const value = unit === 'Cr' ? valueInLakhs / 100 : valueInLakhs;
+
+        return `${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${unit}`;
+    };
 
     return (
         <div className="p-4 sm:p-5">
@@ -222,7 +215,7 @@ export function PlanComparisonChart({ rows }: { rows: Array<{ name: string; actu
                                             style={{ width: `${(row.actual / maximum) * 100}%` }}
                                         />
                                     </div>
-                                    <span className="w-14 text-right text-[9px] font-bold">{row.actual.toLocaleString()}</span>
+                                    <span className="w-20 text-right text-[9px] font-bold whitespace-nowrap">{formatValue(row.actual)}</span>
                                 </div>
                                 <div className="flex items-center gap-3">
                                     <span className="text-muted-foreground w-9 text-[8px] font-bold uppercase">Target</span>
@@ -232,7 +225,7 @@ export function PlanComparisonChart({ rows }: { rows: Array<{ name: string; actu
                                             style={{ width: `${(row.plan / maximum) * 100}%` }}
                                         />
                                     </div>
-                                    <span className="w-14 text-right text-[9px] font-bold">{row.plan.toLocaleString()}</span>
+                                    <span className="w-20 text-right text-[9px] font-bold whitespace-nowrap">{formatValue(row.plan)}</span>
                                 </div>
                             </div>
                         </div>

@@ -12,62 +12,67 @@ import {
     Landmark,
     ShieldCheck,
     ShoppingCart,
-    Target,
     TrendingUp,
     Truck,
     Users,
 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { DataTable, type DataTableColumn } from '../Components/data-table';
 import { DashboardPanel, DepartmentCard, MetricCard, SectionHeading } from '../Components/group-overview-cards';
 import { LineTrendChart, PlanComparisonChart } from '../Components/overview-charts';
 
 const kpis = [
     {
-        label: 'Net sales',
+        label: 'Yesterday sales',
         icon: IndianRupee,
-        periodValues: [
-            {
-                period: 'MTD',
-                value: '₹ 137.2 Cr',
-                note: '₹8.4 Cr ahead of plan',
-                trend: 'up',
-            },
-            {
-                period: 'YTD',
-                value: '₹ 1,284.6 Cr',
-                note: '6.8% growth vs prior year',
-                trend: 'up',
-            },
-        ],
+        value: '₹ 0 Cr',
+        note: 'Previous day net sales',
+        trend: 'up',
     },
     {
-        label: 'Collections',
+        label: 'Yesterday collection',
         icon: TrendingUp,
-        periodValues: [
-            {
-                period: 'MTD',
-                value: '₹ 131.8 Cr',
-                note: '96.1% of net sales',
-                trend: 'up',
-            },
-            {
-                period: 'YTD',
-                value: '₹ 1,219.3 Cr',
-                note: '94.9% of net sales',
-                trend: 'up',
-            },
-        ],
+        value: '₹ 0 Cr',
+        note: 'Previous day collections',
+        trend: 'up',
     },
     {
-        label: 'Month-to-date value',
+        label: 'Net sales (MTD)',
+        icon: IndianRupee,
         value: '₹ 137.2 Cr',
         note: '₹8.4 Cr ahead of plan',
         trend: 'up',
-        icon: Target,
     },
     {
-        label: 'Receivables overdue',
+        label: 'Collections (MTD)',
+        icon: TrendingUp,
+        value: '₹ 131.8 Cr',
+        note: '96.1% of net sales',
+        trend: 'up',
+    },
+    {
+        label: 'Total receivables',
+        value: '₹ 0 Cr',
+        note: 'Current outstanding amount',
+        trend: 'neutral',
+        icon: CircleDollarSign,
+    },
+    {
+        label: 'Net sales (YTD)',
+        icon: IndianRupee,
+        value: '₹ 1,284.6 Cr',
+        note: '6.8% growth vs prior year',
+        trend: 'up',
+    },
+    {
+        label: 'Collections (YTD)',
+        icon: TrendingUp,
+        value: '₹ 1,219.3 Cr',
+        note: '94.9% of net sales',
+        trend: 'up',
+    },
+    {
+        label: 'Receivables > 60 days',
         value: '₹ 21.5 Cr',
         note: '6.2% of total receivables',
         trend: 'down',
@@ -80,26 +85,25 @@ const kpis = [
         trend: 'neutral',
         icon: Building2,
     },
-    {
-        label: 'Open priority items',
-        value: '8',
-        note: '3 require action today',
-        trend: 'neutral',
-        icon: Users,
-    },
 ] as const;
 
 type CompanyRow = {
     code: string;
     company: string;
-    ytdSales: number;
-    yearlyTarget: number;
-    planAchievement: number | null;
-    collections: number;
+    mtdSales: number;
+    monthlyTarget: number;
+    monthlyAchievement: number | null;
+    mtdCollections: number;
     overdue: number;
     activeCustomers: number;
 };
-const companyColumns: DataTableColumn<CompanyRow>[] = [
+const formatScorecardAmount = (valueInCrores: number, unit: 'Lk' | 'Cr') => {
+    const value = unit === 'Lk' ? valueInCrores * 100 : valueInCrores;
+
+    return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${unit}`;
+};
+
+const companyColumns = (unit: 'Lk' | 'Cr'): DataTableColumn<CompanyRow>[] => [
     {
         key: 'company',
         label: 'Company',
@@ -107,40 +111,40 @@ const companyColumns: DataTableColumn<CompanyRow>[] = [
         render: (row) => <span className="font-bold">{row.company}</span>,
     },
     {
-        key: 'ytdSales',
-        label: 'YTD sales',
-        value: (row) => row.ytdSales,
-        render: (row) => `₹${row.ytdSales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`,
+        key: 'mtdSales',
+        label: 'MTD sales',
+        value: (row) => row.mtdSales,
+        render: (row) => formatScorecardAmount(row.mtdSales, unit),
     },
     {
-        key: 'yearlyTarget',
-        label: 'Yearly target',
-        value: (row) => row.yearlyTarget,
-        render: (row) => `₹${row.yearlyTarget.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`,
+        key: 'monthlyTarget',
+        label: 'Monthly target',
+        value: (row) => row.monthlyTarget,
+        render: (row) => formatScorecardAmount(row.monthlyTarget, unit),
     },
     {
         key: 'plan',
-        label: 'Yearly achieved',
-        value: (row) => row.planAchievement ?? -1,
+        label: 'Monthly achieved',
+        value: (row) => row.monthlyAchievement ?? -1,
         render: (row) => (
             <span className="text-brand-teal font-bold">
-                {row.planAchievement === null
+                {row.monthlyAchievement === null
                     ? '—'
-                    : `${row.planAchievement.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+                    : `${row.monthlyAchievement.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
             </span>
         ),
     },
     {
-        key: 'collections',
-        label: 'YTD collections',
-        value: (row) => row.collections,
-        render: (row) => `₹${row.collections.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`,
+        key: 'mtdCollections',
+        label: 'MTD collections',
+        value: (row) => row.mtdCollections,
+        render: (row) => formatScorecardAmount(row.mtdCollections, unit),
     },
     {
         key: 'overdue',
-        label: 'Current overdue',
+        label: 'Receivables > 60 days',
         value: (row) => row.overdue,
-        render: (row) => `₹${row.overdue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`,
+        render: (row) => formatScorecardAmount(row.overdue, unit),
     },
     {
         key: 'activeCustomers',
@@ -219,45 +223,53 @@ const departments = [
     },
 ];
 
-function formatCrores(value: number): string {
-    const crores = value / 10_000_000;
+function formatAmount(value: number, unit: 'Lk' | 'Cr'): string {
+    const convertedValue = value / (unit === 'Cr' ? 10_000_000 : 100_000);
 
-    return `₹\u00A0${crores.toLocaleString('en-IN', {
+    return `₹\u00A0${convertedValue.toLocaleString('en-IN', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-    })}\u00A0Cr`;
+    })}\u00A0${unit}`;
 }
 
 export default function GroupOverview({
-    netSales = { mtd: 0, ytd: 0 },
-    collections = { mtd: 0, ytd: 0 },
+    netSales = { mtd: 0, ytd: 0, yesterday: 0 },
+    collections = { mtd: 0, ytd: 0, yesterday: 0 },
     receivablesOverdue = 0,
+    totalReceivables = 0,
     inventory = { value: 0, zrawValue: 0, yrawValue: 0, daysOfCover: null },
-    priorityItems = { open: 0, due: 0 },
-    performance = { year: new Date().getFullYear(), yearlyTarget: 0, targetFiscalYear: '', monthlyTrend: [], planComparison: [] },
+    performance = { year: new Date().getFullYear(), yearlyTarget: 0, targetFiscalYear: '', monthlyTrend: [], dailyTrend: [], planComparison: [] },
     companyScorecard = [],
-    salesMeta = { salesDateTime: null, collectionsDateTime: null, inventoryDateTime: null, apiSyncDateTime: null },
+    salesMeta = { salesDateTime: null, collectionsDateTime: null, receivablesDateTime: null, inventoryDateTime: null, apiSyncDateTime: null, salesDataDate: null, yesterdaySalesDate: null, collectionsDataDate: null, yesterdayCollectionsDate: null, receivablesDataDate: null, inventoryDataDate: null },
     companies: companyOptions = [],
     filters = { company: null },
 }: {
-    netSales?: { mtd: number; ytd: number };
-    collections?: { mtd: number; ytd: number };
+    netSales?: { mtd: number; ytd: number; yesterday: number };
+    collections?: { mtd: number; ytd: number; yesterday: number };
     receivablesOverdue?: number;
+    totalReceivables?: number;
     inventory?: { value: number; zrawValue: number; yrawValue: number; daysOfCover: number | null };
-    priorityItems?: { open: number; due: number };
     performance?: {
         year: number;
         yearlyTarget: number;
         targetFiscalYear: string;
         monthlyTrend: Array<{ date: string; sales: number | null; collections: number | null; target: number }>;
+        dailyTrend: Array<{ date: string; sales: number | null; collections: number | null; target: number }>;
         planComparison: Array<{ name: string; actual: number; plan: number }>;
     };
     companyScorecard?: CompanyRow[];
     salesMeta?: {
         salesDateTime: string | null;
         collectionsDateTime: string | null;
+        receivablesDateTime: string | null;
         inventoryDateTime: string | null;
         apiSyncDateTime: string | null;
+        salesDataDate: string | null;
+        yesterdaySalesDate: string | null;
+        collectionsDataDate: string | null;
+        yesterdayCollectionsDate: string | null;
+        receivablesDataDate: string | null;
+        inventoryDataDate: string | null;
     };
     companies?: { code: string; name: string }[];
     filters?: { company: string | null };
@@ -270,106 +282,110 @@ export default function GroupOverview({
                         'netSales',
                         'collections',
                         'receivablesOverdue',
+                        'totalReceivables',
                         'inventory',
-                        'priorityItems',
+                        'salesMeta',
                         'performance',
                         'companyScorecard',
-                        'salesMeta',
                     ],
                     preserveScroll: true,
                     preserveState: true,
                 });
             }
         };
-        const interval = window.setInterval(refreshNetSales, 15_000);
+        const interval = window.setInterval(refreshNetSales, 60_000);
 
         return () => window.clearInterval(interval);
     }, []);
 
     const selectedCompany = filters.company ?? '';
+    const [displayUnit, setDisplayUnit] = useState<'Lk' | 'Cr'>('Cr');
     const selectedCompanyName = companyOptions.find(({ code }) => code === selectedCompany)?.name ?? 'All companies';
-    const dataCutoff = salesMeta.salesDateTime ?? 'time unavailable';
-    const collectionsCutoff = salesMeta.collectionsDateTime ?? 'time unavailable';
-    const inventoryCutoff = salesMeta.inventoryDateTime ?? 'time unavailable';
-    const salesScopeNote = selectedCompany ? `${selectedCompanyName}\n(${dataCutoff})` : `All companies combined\n(${dataCutoff})`;
+    const salesScopeNote = selectedCompany ? selectedCompanyName : 'All companies combined';
     const liveKpis = kpis.map((kpi) => {
-        if (kpi.label === 'Net sales') {
+        if (kpi.label === 'Net sales (MTD)' || kpi.label === 'Net sales (YTD)') {
             return {
                 ...kpi,
-                periodValues: [
-                    {
-                        period: 'MTD' as const,
-                        value: formatCrores(netSales.mtd),
-                        note: salesScopeNote,
-                        trend: 'up' as const,
-                    },
-                    {
-                        period: 'YTD' as const,
-                        value: formatCrores(netSales.ytd),
-                        note: salesScopeNote,
-                        trend: 'up' as const,
-                    },
-                ],
+                value: formatAmount(kpi.label.endsWith('(MTD)') ? netSales.mtd : netSales.ytd, displayUnit),
+                note: salesScopeNote,
+                asOf: salesMeta.salesDataDate,
+                lastSync: salesMeta.salesDateTime,
+                trend: 'up' as const,
             };
         }
 
-        if (kpi.label === 'Collections') {
+        if (kpi.label === 'Collections (MTD)' || kpi.label === 'Collections (YTD)') {
             return {
                 ...kpi,
-                periodValues: [
-                    {
-                        period: 'MTD',
-                        value: formatCrores(collections.mtd),
-                        note: `${selectedCompanyName}\n(${collectionsCutoff})`,
-                        trend: 'up' as const,
-                    },
-                    {
-                        period: 'YTD',
-                        value: formatCrores(collections.ytd),
-                        note: `${selectedCompanyName} — Through ${collectionsCutoff}`,
-                        trend: 'up' as const,
-                    },
-                ],
+                value: formatAmount(kpi.label.endsWith('(MTD)') ? collections.mtd : collections.ytd, displayUnit),
+                note: selectedCompanyName,
+                asOf: salesMeta.collectionsDataDate,
+                lastSync: salesMeta.collectionsDateTime,
+                trend: 'up' as const,
             };
         }
 
-        if (kpi.label === 'Receivables overdue') {
+        if (kpi.label === 'Yesterday collection') {
             return {
                 ...kpi,
-                value: formatCrores(receivablesOverdue),
-                note: `${selectedCompanyName} — Current month overdue`,
+                value: formatAmount(collections.yesterday, displayUnit),
+                note: `${selectedCompanyName} — Previous day collections`,
+                asOf: salesMeta.yesterdayCollectionsDate,
+                lastSync: salesMeta.collectionsDateTime,
+                trend: 'up' as const,
             };
         }
 
-        if (kpi.label === 'Month-to-date value') {
+        if (kpi.label === 'Receivables > 60 days') {
             return {
                 ...kpi,
-                value: formatCrores(netSales.mtd),
-                note: `${selectedCompanyName} — Current month net sales`,
+                value: formatAmount(receivablesOverdue, displayUnit),
+                note: `${selectedCompanyName} — Outstanding for more than 60 days`,
+                asOf: salesMeta.receivablesDataDate,
+                lastSync: salesMeta.receivablesDateTime,
+            };
+        }
+
+        if (kpi.label === 'Yesterday sales') {
+            return {
+                ...kpi,
+                value: formatAmount(netSales.yesterday, displayUnit),
+                note: `${selectedCompanyName} — Previous day net sales`,
+                asOf: salesMeta.yesterdaySalesDate,
+                lastSync: salesMeta.salesDateTime,
+            };
+        }
+
+        if (kpi.label === 'Total receivables') {
+            return {
+                ...kpi,
+                value: formatAmount(totalReceivables, displayUnit),
+                note: `${selectedCompanyName} — Current outstanding amount`,
+                asOf: salesMeta.receivablesDataDate,
+                lastSync: salesMeta.receivablesDateTime,
             };
         }
 
         if (kpi.label === 'Inventory value') {
             return {
                 ...kpi,
-                value: formatCrores(inventory.value),
+                value: formatAmount(inventory.value, displayUnit),
                 note:
                     inventory.daysOfCover === null
-                        ? `ZRAW ${formatCrores(inventory.zrawValue)} · YRAW ${formatCrores(inventory.yrawValue)}\n${selectedCompanyName} — Cover unavailable (${inventoryCutoff})`
-                        : `ZRAW ${formatCrores(inventory.zrawValue)} · YRAW ${formatCrores(inventory.yrawValue)}\n${inventory.daysOfCover.toLocaleString('en-IN', { maximumFractionDigits: 1 })} days of cover (${inventoryCutoff})`,
-            };
-        }
-
-        if (kpi.label === 'Open priority items') {
-            return {
-                ...kpi,
-                value: priorityItems.open.toLocaleString('en-IN'),
-                note: `${priorityItems.due.toLocaleString('en-IN')} require action today`,
+                        ? `ZRAW ${formatAmount(inventory.zrawValue, displayUnit)} · YRAW ${formatAmount(inventory.yrawValue, displayUnit)}\n${selectedCompanyName} — Cover unavailable`
+                        : `ZRAW ${formatAmount(inventory.zrawValue, displayUnit)} · YRAW ${formatAmount(inventory.yrawValue, displayUnit)}\n${inventory.daysOfCover.toLocaleString('en-IN', { maximumFractionDigits: 1 })} days of cover`,
+                asOf: salesMeta.inventoryDataDate,
+                lastSync: salesMeta.inventoryDateTime,
             };
         }
 
         return kpi;
     });
+    const salesKpis = liveKpis.filter((kpi) => kpi.label.toLowerCase().includes('sales'));
+    const collectionKpis = liveKpis.filter((kpi) => kpi.label.toLowerCase().includes('collection'));
+    const operationalKpis = liveKpis.filter(
+        (kpi) => !kpi.label.toLowerCase().includes('sales') && !kpi.label.toLowerCase().includes('collection'),
+    );
 
     return (
         <AppLayout>
@@ -383,7 +399,7 @@ export default function GroupOverview({
                             <p className="text-brand-gold mb-1 text-[10px] font-bold tracking-[0.18em] uppercase">Management cockpit</p>
                             <h1 className="text-2xl font-black tracking-[-0.035em] sm:text-[2rem]">Group overview</h1>
                         </div>
-                        <div className="relative z-10 w-full rounded-xl border border-white/15 bg-white/[0.08] p-3 backdrop-blur-sm lg:w-auto">
+                        <div className="relative z-10 flex w-full gap-3 rounded-xl border border-white/15 bg-white/[0.08] p-3 backdrop-blur-sm lg:w-auto">
                             <label className="grid gap-1.5 text-[10px] font-bold tracking-wide text-white/65 uppercase" htmlFor="company-filter">
                                 Company
                                 <select
@@ -392,9 +408,20 @@ export default function GroupOverview({
                                     onChange={(event) => {
                                         const company = event.target.value;
 
-                                        router.get('/admin/group-overview', company ? { company } : {}, {
+                                        router.post('/admin/group-overview/company-filter', { company }, {
+                                            only: [
+                                                'filters',
+                                                'netSales',
+                                                'collections',
+                                                'receivablesOverdue',
+                                                'totalReceivables',
+                                                'inventory',
+                                                'salesMeta',
+                                                'performance',
+                                                'companyScorecard',
+                                            ],
                                             preserveScroll: true,
-                                            preserveState: true,
+                                            preserveState: false,
                                             replace: true,
                                         });
                                     }}
@@ -408,30 +435,65 @@ export default function GroupOverview({
                                     ))}
                                 </select>
                             </label>
+                            <label className="grid gap-1.5 text-[10px] font-bold tracking-wide text-white/65 uppercase" htmlFor="unit-filter">
+                                Display unit
+                                <select
+                                    id="unit-filter"
+                                    value={displayUnit}
+                                    onChange={(event) => setDisplayUnit(event.target.value as 'Lk' | 'Cr')}
+                                    className="text-brand-plum focus:ring-brand-gold/40 h-9 min-w-32 rounded-lg border border-white/30 bg-white px-3 text-xs font-bold shadow-sm transition outline-none focus:ring-2"
+                                >
+                                    <option value="Cr">Crore (Cr)</option>
+                                    <option value="Lk">Lakh (Lk)</option>
+                                </select>
+                            </label>
                         </div>
                     </header>
 
-                    <section aria-label="Key performance indicators" className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-4">
-                        {liveKpis.map((kpi) => (
-                            <MetricCard key={kpi.label} {...kpi} />
-                        ))}
+                    <section aria-label="Key performance indicators" className="space-y-4">
+                        <div className="space-y-2">
+                            <p className="text-muted-foreground text-[10px] font-extrabold tracking-[0.12em] uppercase">Sales performance</p>
+                            <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-3">
+                                {salesKpis.map((kpi) => (
+                                    <MetricCard key={kpi.label} {...kpi} />
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <p className="text-muted-foreground text-[10px] font-extrabold tracking-[0.12em] uppercase">Collections performance</p>
+                            <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-3">
+                                {collectionKpis.map((kpi) => (
+                                    <MetricCard key={kpi.label} {...kpi} />
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                            <p className="text-muted-foreground text-[10px] font-extrabold tracking-[0.12em] uppercase">Working capital & actions</p>
+                            <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 lg:grid-cols-3">
+                                {operationalKpis.map((kpi) => (
+                                    <MetricCard key={kpi.label} {...kpi} />
+                                ))}
+                            </div>
+                        </div>
                     </section>
 
                     <section className="space-y-3">
                         <SectionHeading>Performance at a glance</SectionHeading>
                         <div className="grid gap-4 xl:grid-cols-2">
-                            <DashboardPanel title="Monthly sales, collections and target · crore" meta={`${performance.year} · Jan–Dec`}>
+                            <DashboardPanel
+                                title="Daily sales, collections and target · crore"
+                                meta={`${selectedCompanyName} · ${new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}`}
+                                metaClassName="text-foreground text-base font-black tracking-tight"
+                            >
                                 <LineTrendChart
-                                    labels={performance.monthlyTrend.map(({ date }) => date)}
-                                    sales={performance.monthlyTrend.map(({ sales }) => sales)}
-                                    collections={performance.monthlyTrend.map(({ collections }) => collections)}
-                                    target={performance.monthlyTrend.map(({ target }) => target)}
-                                    yearlyTarget={performance.yearlyTarget}
-                                    targetFiscalYear={performance.targetFiscalYear}
+                                    labels={performance.dailyTrend.map(({ date }) => date)}
+                                    sales={performance.dailyTrend.map(({ sales }) => sales)}
+                                    collections={performance.dailyTrend.map(({ collections }) => collections)}
+                                    target={performance.dailyTrend.map(({ target }) => target)}
                                 />
                             </DashboardPanel>
-                            <DashboardPanel title="Month-to-date sales versus target · lakh" meta="Actual / Target">
-                                <PlanComparisonChart rows={performance.planComparison} />
+                            <DashboardPanel title={`Month-to-date sales versus target · ${displayUnit === 'Lk' ? 'lakh' : 'crore'}`} meta="Actual / Target">
+                                <PlanComparisonChart rows={performance.planComparison} unit={displayUnit} />
                             </DashboardPanel>
                         </div>
                     </section>
@@ -445,8 +507,8 @@ export default function GroupOverview({
                                 </h3>
                             </div>
                             <DataTable
-                                rows={companyScorecard.filter((row) => selectedCompany === '' || row.code === selectedCompany)}
-                                columns={companyColumns}
+                                rows={companyScorecard}
+                                columns={companyColumns(displayUnit)}
                                 searchPlaceholder="Search companies"
                                 initialPageSize={5}
                             />

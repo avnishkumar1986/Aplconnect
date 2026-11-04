@@ -100,6 +100,20 @@ type FormData = {
   timeout_seconds: number;
   status: boolean;
 };
+
+const formatDateTime = (value: string) =>
+  new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  })
+    .format(new Date(value))
+    .replace(/\b(am|pm)\b/i, (period) => period.toUpperCase());
+
 const empty: FormData = {
   module_id: "",
   name: "",
@@ -139,28 +153,40 @@ export default function ApiIntegrations({
   credentialSourceCode: string;
   modules: ModuleOption[];
 }) {
+  const isEnvironmentProfile = (api: Api) =>
+    ["production", "quality"].includes(api.code.toLowerCase());
+  const isCommonIntegration = (api: Api) =>
+    isEnvironmentProfile(api) ||
+    ["employee", "security"].includes(api.code.toLowerCase());
   const [search, setSearch] = useState(filters.search),
     [open, setOpen] = useState(false),
     [editing, setEditing] = useState<Api | null>(null),
     [logsFor, setLogsFor] = useState<Api | null>(null),
     [expandedId, setExpandedId] = useState<number | null>(null),
     [openModule, setOpenModule] = useState<string | null>(
-      () => integrations.data[0]?.module?.name ?? "Unmapped integrations",
+      () =>
+        integrations.data[0] && isCommonIntegration(integrations.data[0])
+          ? "Common"
+          : (integrations.data[0]?.module?.name ?? "Unmapped integrations"),
     );
   const form = useForm<FormData>(empty);
   useEffect(() => {
-    const hasActiveRun = integrations.data.some(
-      (a) =>
-        ["queued", "running"].includes(a.last_run_status ?? "") ||
-        a.logs.some((log) => ["queued", "running"].includes(log.status)),
-    );
-    if (!hasActiveRun) return;
-    const timer = window.setInterval(
-      () => router.reload({ only: ["integrations"] }),
-      3000,
-    );
-    return () => window.clearInterval(timer);
-  }, [integrations.data]);
+    const refreshStatuses = () => {
+      if (document.hidden) return;
+      router.reload({
+        only: ["integrations"],
+        preserveScroll: true,
+        preserveState: true,
+      });
+    };
+    const timer = window.setInterval(refreshStatuses, 3000);
+    window.addEventListener("focus", refreshStatuses);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshStatuses);
+    };
+  }, []);
   useEffect(() => {
     setLogsFor((current) => {
       if (!current) return current;
@@ -206,28 +232,35 @@ export default function ApiIntegrations({
   };
   const groupedIntegrations = integrations.data.reduce<Record<string, Api[]>>(
     (groups, integration) => {
-      const moduleName = integration.module?.name ?? "Unmapped integrations";
+      const moduleName = isCommonIntegration(integration)
+        ? "Common"
+        : (integration.module?.name ?? "Unmapped integrations");
       (groups[moduleName] ??= []).push(integration);
 
       return groups;
     },
     {},
   );
+  let serialIndex = 0;
+  let moduleSerial = 0;
   const tableRows = Object.entries(groupedIntegrations).flatMap(
     ([moduleName, moduleIntegrations]) => {
-      const successful = moduleIntegrations.filter((api) =>
+      const runnableIntegrations = moduleIntegrations.filter(
+        (api) => !isEnvironmentProfile(api),
+      );
+      const successful = runnableIntegrations.filter((api) =>
         ["success", "completed"].includes(api.last_run_status ?? ""),
       ).length;
-      const running = moduleIntegrations.filter((api) =>
+      const running = runnableIntegrations.filter((api) =>
         ["queued", "running"].includes(api.last_run_status ?? ""),
       ).length;
-      const failed = moduleIntegrations.filter(
+      const failed = runnableIntegrations.filter(
         (api) => api.last_run_status === "failed",
       ).length;
-      const neverRun = moduleIntegrations.filter(
+      const neverRun = runnableIntegrations.filter(
         (api) => !api.last_run_status,
       ).length;
-      const recordsReceived = moduleIntegrations.reduce(
+      const recordsReceived = runnableIntegrations.reduce(
         (total, api) => total + (api.logs[0]?.records_received ?? 0),
         0,
       );
@@ -241,8 +274,10 @@ export default function ApiIntegrations({
       return [
         {
           kind: "module" as const,
+          serial: ++moduleSerial,
           moduleName,
           count: moduleIntegrations.length,
+          runnableCount: runnableIntegrations.length,
           successful,
           running,
           failed,
@@ -254,7 +289,7 @@ export default function ApiIntegrations({
           ? moduleIntegrations.map((api) => ({
               kind: "api" as const,
               api,
-              index: integrations.data.findIndex((item) => item.id === api.id),
+              index: serialIndex++,
             }))
           : []),
       ];
@@ -273,23 +308,32 @@ export default function ApiIntegrations({
       ]}
     >
       <Head title="API Integrations" />
-      <div className="min-h-full bg-slate-50/70 p-3 md:p-5">
-        <section className="mx-auto w-full max-w-[1680px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-slate-200 bg-gradient-to-r from-white via-white to-cyan-50/60 px-5 py-4">
+      <div className="min-h-full bg-slate-100/70 p-3 md:p-5">
+        <section className="mx-auto w-full max-w-[1680px] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.06)]">
+          <div className="border-b border-slate-200 bg-gradient-to-r from-white via-white to-cyan-50/50 px-5 py-4 md:px-6 md:py-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <div className="flex items-center gap-2.5">
-                  <span className="grid size-9 place-items-center rounded-xl bg-cyan-50 text-cyan-700 ring-1 ring-cyan-100">
-                    <Globe2 className="size-4.5" />
+                  <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-cyan-600 to-teal-700 text-white shadow-sm shadow-cyan-900/15">
+                    <Globe2 className="size-5" />
                   </span>
                   <div>
-                    <h1 className="text-base font-bold text-slate-900">
-                      API integrations
+                    <h1 className="text-lg font-bold tracking-tight text-slate-950">
+                      API Integrations
                     </h1>
-                    <p className="text-xs text-slate-500">
-                      Manage endpoints, credentials, destinations, and execution
-                      history.
-                    </p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                      <p className="text-xs text-slate-500">
+                        Manage endpoints, credentials, destinations, and execution
+                        history.
+                      </p>
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold tracking-wide text-emerald-700 uppercase ring-1 ring-emerald-200">
+                        <span className="relative flex size-1.5">
+                          <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                          <span className="relative inline-flex size-1.5 rounded-full bg-emerald-500" />
+                        </span>
+                        Live status
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -297,7 +341,7 @@ export default function ApiIntegrations({
                 <div className="relative w-full lg:max-w-3xl lg:flex-1">
                   <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-slate-400" />
                   <Input
-                    className="h-10 border-slate-200 bg-white pl-9 shadow-none"
+                    className="h-11 rounded-xl border-slate-200 bg-white pl-10 shadow-sm shadow-slate-200/40 transition focus-visible:border-cyan-500 focus-visible:ring-cyan-500/15"
                     value={search}
                     placeholder="Search by name, code, endpoint, or table…"
                     onChange={(e) => setSearch(e.target.value)}
@@ -307,7 +351,7 @@ export default function ApiIntegrations({
                 {canManage && (
                   <Button
                     onClick={create}
-                    className="bg-brand-teal text-white shadow-sm hover:bg-cyan-700"
+                    className="h-11 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 px-5 font-semibold text-white shadow-sm shadow-cyan-900/15 hover:from-cyan-700 hover:to-teal-700"
                   >
                     <Plus className="size-4" />
                     Add integration
@@ -318,7 +362,7 @@ export default function ApiIntegrations({
           </div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1320px] text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold tracking-[0.08em] text-slate-500 uppercase">
+              <thead className="border-b border-slate-200 bg-slate-50/90 text-[10px] font-bold tracking-[0.1em] text-slate-500 uppercase">
                 <tr>
                   <th className="w-14 px-3 py-3"></th>
                   {[
@@ -332,7 +376,7 @@ export default function ApiIntegrations({
                     "Status",
                     "Last run",
                   ].map((h) => (
-                    <th key={h} className="px-4 py-3.5">
+                    <th key={h} className="px-4 py-3.5 first:pl-5">
                       {h}
                     </th>
                   ))}
@@ -345,7 +389,7 @@ export default function ApiIntegrations({
 
                     return (
                       <tr key={`module-${row.moduleName}`}>
-                        <td colSpan={10} className="bg-slate-100/90 p-0">
+                        <td colSpan={10} className="bg-white p-0">
                           <button
                             type="button"
                             aria-expanded={isOpen}
@@ -356,43 +400,63 @@ export default function ApiIntegrations({
                                   : row.moduleName,
                               )
                             }
-                            className="flex w-full flex-wrap items-center gap-3 px-5 py-3 text-left transition hover:bg-cyan-50"
+                            className={`group flex w-full flex-wrap items-center gap-3 border-l-[3px] px-5 py-4 text-left transition-all ${isOpen ? "border-l-cyan-600 bg-cyan-50/45" : "border-l-transparent hover:border-l-cyan-300 hover:bg-slate-50/80"}`}
                           >
-                            <span className="grid size-8 place-items-center rounded-lg bg-white text-cyan-700 shadow-sm ring-1 ring-slate-200">
-                              <Layers3 className="size-4" />
+                            <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-slate-50 to-cyan-50 text-cyan-700 shadow-sm ring-1 ring-slate-200 transition-transform group-hover:-translate-y-0.5">
+                              <Layers3 className="size-[18px]" />
                             </span>
-                            <span className="font-bold text-slate-900">
-                              {row.moduleName}
+                            <span className="grid size-7 place-items-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-600 ring-1 ring-slate-200">
+                              {row.serial}
                             </span>
-                            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
+                            <span className="min-w-0">
+                              <span className="block text-sm font-bold tracking-tight text-slate-900">
+                                {row.moduleName}
+                              </span>
+                              <span className="mt-0.5 block text-[10px] font-medium text-slate-400">
+                                Integration group
+                              </span>
+                            </span>
+                            <span className="rounded-full bg-slate-50 px-2.5 py-1 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200">
                               {row.count} {row.count === 1 ? "API" : "APIs"}
                             </span>
-                            <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5 text-[10px] font-semibold">
-                              <span className="rounded-full bg-emerald-50 px-2 py-1 text-emerald-700 ring-1 ring-emerald-200">
-                                {row.successful} successful
+                            {row.moduleName === "Common" &&
+                            row.runnableCount === 0 ? (
+                              <span className="ml-auto rounded-full bg-cyan-50 px-3 py-1.5 text-[10px] font-semibold text-cyan-700 ring-1 ring-cyan-200">
+                                Shared connection profiles
                               </span>
-                              <span className="rounded-full bg-sky-50 px-2 py-1 text-sky-700 ring-1 ring-sky-200">
-                                {row.running} running
+                            ) : (
+                              <span className="ml-auto flex flex-wrap items-center justify-end gap-2 text-[10px] font-semibold">
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1.5 text-emerald-700 ring-1 ring-emerald-200/80">
+                                  <span className="size-1.5 rounded-full bg-emerald-500" />
+                                  {row.successful} successful
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-2.5 py-1.5 text-sky-700 ring-1 ring-sky-200/80">
+                                  <span className="size-1.5 rounded-full bg-sky-500" />
+                                  {row.running} running
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-2.5 py-1.5 text-rose-700 ring-1 ring-rose-200/80">
+                                  <span className="size-1.5 rounded-full bg-rose-500" />
+                                  {row.failed} failed
+                                </span>
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1.5 text-slate-500 ring-1 ring-slate-200">
+                                  {row.neverRun} never run
+                                </span>
+                                <span className="rounded-full bg-white px-2.5 py-1.5 text-slate-600 ring-1 ring-slate-200">
+                                  {row.recordsReceived.toLocaleString()} records
+                                </span>
+                                <span className="whitespace-nowrap border-l border-slate-200 pl-3 text-slate-500">
+                                  <span className="text-slate-400">Last sync</span>{" "}
+                                  {row.lastSyncAt
+                                    ? formatDateTime(row.lastSyncAt)
+                                    : "Never"}
+                                </span>
                               </span>
-                              <span className="rounded-full bg-rose-50 px-2 py-1 text-rose-700 ring-1 ring-rose-200">
-                                {row.failed} failed
-                              </span>
-                              <span className="rounded-full bg-slate-200 px-2 py-1 text-slate-600">
-                                {row.neverRun} never run
-                              </span>
-                              <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
-                                {row.recordsReceived.toLocaleString()} records
-                              </span>
-                              <span className="whitespace-nowrap px-1 text-slate-500">
-                                Last sync ·{" "}
-                                {row.lastSyncAt
-                                  ? new Date(row.lastSyncAt).toLocaleString()
-                                  : "Never"}
-                              </span>
+                            )}
+                            <span className="grid size-8 place-items-center rounded-lg text-slate-400 ring-1 ring-slate-200 transition group-hover:bg-white group-hover:text-cyan-700">
+                              <ChevronDown
+                                className={`size-4 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                              />
                             </span>
-                            <ChevronDown
-                              className={`size-4 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`}
-                            />
                           </button>
                         </td>
                       </tr>
@@ -401,6 +465,7 @@ export default function ApiIntegrations({
 
                   const a = row.api;
                   const i = row.index;
+                  const environmentProfile = isEnvironmentProfile(a);
 
                   return (
                     <Fragment key={a.id}>
@@ -516,12 +581,14 @@ export default function ApiIntegrations({
                           <span
                             className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold capitalize ${["success", "completed"].includes(a.last_run_status ?? "") ? "bg-emerald-50 text-emerald-700" : ["queued", "running"].includes(a.last_run_status ?? "") ? "bg-sky-50 text-sky-700" : a.last_run_status === "failed" ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500"}`}
                           >
-                            {a.last_run_status?.replaceAll("_", " ") ||
-                              "Never run"}
+                            {environmentProfile
+                              ? "Connection profile"
+                              : a.last_run_status?.replaceAll("_", " ") ||
+                                "Never run"}
                           </span>
                           {a.last_run_at && (
                             <span className="mt-1 block whitespace-nowrap text-[10px] text-slate-400">
-                              {new Date(a.last_run_at).toLocaleString()}
+                              {formatDateTime(a.last_run_at)}
                             </span>
                           )}
                         </td>
@@ -538,10 +605,13 @@ export default function ApiIntegrations({
                                   Integration actions
                                 </span>
                                 <p className="mt-0.5 text-[10px] text-slate-400">
-                                  Run, inspect logs, or update this connection.
+                                  {environmentProfile
+                                    ? "Inspect or update this shared connection profile."
+                                    : "Run, inspect logs, or update this connection."}
                                 </p>
                               </div>
-                              {runnableCodes.includes(a.code.toLowerCase()) && (
+                              {!environmentProfile &&
+                                runnableCodes.includes(a.code.toLowerCase()) && (
                                 <Button
                                   onClick={() =>
                                     router.post(
@@ -556,13 +626,15 @@ export default function ApiIntegrations({
                                   Run
                                 </Button>
                               )}
-                              <Button
-                                variant="outline"
-                                onClick={() => setLogsFor(a)}
-                              >
-                                <FileText className="size-3.5" />
-                                Logs
-                              </Button>
+                              {!environmentProfile && (
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setLogsFor(a)}
+                                >
+                                  <FileText className="size-3.5" />
+                                  Logs
+                                </Button>
+                              )}
                               {manageableCodes.includes(
                                 a.code.toLowerCase(),
                               ) && (
@@ -602,7 +674,7 @@ export default function ApiIntegrations({
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/80 px-4 py-3 text-xs text-slate-500">
+          <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/80 px-5 py-3.5 text-xs text-slate-500">
             <div className="flex items-center gap-2">
               Showing {integrations.from ?? 0}–{integrations.to ?? 0} of{" "}
               {integrations.total}
@@ -1020,7 +1092,7 @@ export default function ApiIntegrations({
                   {logsFor.logs.map((l) => (
                     <tr key={l.id}>
                       <td className="p-3">
-                        {new Date(l.created_at).toLocaleString()}
+                        {formatDateTime(l.created_at)}
                       </td>
                       <td className="p-3 font-semibold capitalize">
                         {l.status}
