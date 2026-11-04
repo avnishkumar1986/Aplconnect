@@ -9,6 +9,8 @@ use App\Models\MaterialStock;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -142,7 +144,36 @@ class ImportMaterialsFromApi implements ShouldQueue
                 throw new RuntimeException('Material API host is not in API_ALLOWED_HOSTS.');
             }
 
-            $client = Http::timeout($api->timeout_seconds)->acceptJson();
+            $maxAttempts = max(1, min(10, (int) $api->retries));
+            $requestTimeout = max(1, min(300, (int) $api->timeout_seconds));
+            $connectTimeout = max(1, min(
+                $requestTimeout,
+                (int) config('services.api_integrations.connect_timeout_seconds', 10),
+            ));
+            $attempts = 0;
+            $client = Http::connectTimeout($connectTimeout)
+                ->timeout($requestTimeout)
+                ->acceptJson()
+                ->beforeSending(function () use (&$attempts): void {
+                    $attempts++;
+                })
+                ->retry(
+                    $maxAttempts,
+                    fn (int $attempt): int => $this->retryDelayMilliseconds($attempt, (int) $api->retry_delay_seconds),
+                    function (Throwable $exception, PendingRequest $_request) use ($runLog, &$attempts, $maxAttempts): bool {
+                        $shouldRetry = $this->shouldRetryApiRequest($exception);
+
+                        if ($shouldRetry && $attempts < $maxAttempts) {
+                            $runLog->update([
+                                'status' => 'running',
+                                'attempt' => $attempts + 1,
+                                'message' => 'Transient API failure; request attempt '.($attempts + 1)." of {$maxAttempts} is pending.",
+                            ]);
+                        }
+
+                        return $shouldRetry;
+                    },
+                );
 
             // The Quality SAP appliance presents its internal QASFIORIAPP.local
             // certificate while it is reached through its configured IP address.
@@ -282,7 +313,7 @@ class ImportMaterialsFromApi implements ShouldQueue
                 $runLog->update([
                     'status' => 'success',
                     'http_status' => $response->status(),
-                    'attempt' => 1,
+                    'attempt' => max(1, $attempts),
                     'duration_ms' => (int) round((microtime(true) - $started) * 1000),
                     'records_received' => count($items),
                     'message' => implode('; ', $messages).'.',
@@ -300,7 +331,7 @@ class ImportMaterialsFromApi implements ShouldQueue
                 $runLog->update([
                     'status' => 'failed',
                     'http_status' => $httpStatus,
-                    'attempt' => 1,
+                    'attempt' => max(1, $attempts ?? 1),
                     'duration_ms' => (int) round((microtime(true) - $started) * 1000),
                     'message' => $message,
                 ]);
@@ -308,6 +339,26 @@ class ImportMaterialsFromApi implements ShouldQueue
             }
             throw $exception;
         }
+    }
+
+    private function retryDelayMilliseconds(int $attempt, int $baseDelaySeconds): int
+    {
+        $baseDelayMilliseconds = max(0, min(300, $baseDelaySeconds)) * 1000;
+
+        return min(30_000, $baseDelayMilliseconds * (2 ** max(0, $attempt - 1)));
+    }
+
+    private function shouldRetryApiRequest(Throwable $exception): bool
+    {
+        if ($exception instanceof ConnectionException) {
+            return true;
+        }
+
+        if (! $exception instanceof RequestException) {
+            return false;
+        }
+
+        return in_array($exception->response->status(), [408, 425, 429, 500, 502, 503, 504], true);
     }
 
     private function clearProcurementDashboardCache(): void

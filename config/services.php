@@ -5,6 +5,7 @@ return [
         'environment_code' => env('API_ENVIRONMENT', 'production'),
         'allowed_hosts' => env('API_ALLOWED_HOSTS', ''),
         'insecure_tls_hosts' => env('API_INSECURE_TLS_HOSTS', ''),
+        'connect_timeout_seconds' => (int) env('API_CONNECT_TIMEOUT_SECONDS', 10),
         'credentials' => [
             'PROCUREMENT_STOCK_API_TOKEN' => [
                 'username' => env('API_AUTH_USERNAME'),
